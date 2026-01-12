@@ -1,0 +1,26 @@
+{
+  "name": "@labyrinth-legends/game-engine",
+  "version": "1.0.0",
+  "description": "Modernized Astray maze game engine with Three.js and Box2dWeb",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./game": "./src/game.js"
+  },
+  "scripts": {
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "three": "^0.165.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "keywords": [
+    "maze",
+    "game",
+    "three.js",
+    "box2d"
+  ]
+}

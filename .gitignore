@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Rust/Contract targets
+contracts/*/target/
+*.wasm
+
+# Cache
+.cache/
+.turbo/
+*.tsbuildinfo
+
+# Test
+coverage/
+
+# Misc
+*.Zone.Identifier

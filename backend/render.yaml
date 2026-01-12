@@ -1,0 +1,27 @@
+# Render Backend Deployment Configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: labyrinth-legends-backend
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install -g pnpm && pnpm install && pnpm run build
+    startCommand: pnpm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: CORS_ORIGINS
+        value: https://labyrinth-legends.vercel.app,https://labyrinth-legends-goat-dev8.vercel.app
+      - key: LINERA_FAUCET_URL
+        value: https://faucet.testnet-conway.linera.net
+      - key: LINERA_CHAIN_ID
+        value: 5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36
+      - key: LINERA_APP_ID
+        value: 14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a
+      - key: ENABLE_LINERA
+        value: "true"

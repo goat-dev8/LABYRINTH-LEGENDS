@@ -1,0 +1,96 @@
+{
+  "players": [
+    [
+      "0x72f5cc029b361b60f6986ee2679b5be8e0f34837",
+      {
+        "walletAddress": "0x72f5cc029b361b60f6986ee2679b5be8e0f34837",
+        "username": "goat",
+        "totalXp": 0,
+        "practiceRuns": 0,
+        "tournamentRuns": 0,
+        "tournamentsPlayed": 0,
+        "tournamentsWon": 0,
+        "registeredAt": "2026-01-11T01:31:37.829Z",
+        "lastActive": "2026-01-11T01:31:37.829Z"
+      }
+    ],
+    [
+      "0xf76e6b0920e9332ff4410f6dd53f01722abc71a3",
+      {
+        "walletAddress": "0xf76e6b0920e9332ff4410f6dd53f01722abc71a3",
+        "username": "don",
+        "totalXp": 0,
+        "practiceRuns": 0,
+        "tournamentRuns": 0,
+        "tournamentsPlayed": 0,
+        "tournamentsWon": 0,
+        "registeredAt": "2026-01-11T03:23:27.253Z",
+        "lastActive": "2026-01-11T03:23:27.253Z"
+      }
+    ],
+    [
+      "0x2301cd93fec8249219b4b661b4bc81889b494de6",
+      {
+        "walletAddress": "0x2301cd93fec8249219b4b661b4bc81889b494de6",
+        "username": "doonnn",
+        "totalXp": 10400,
+        "practiceRuns": 18,
+        "tournamentRuns": 0,
+        "tournamentsPlayed": 0,
+        "tournamentsWon": 0,
+        "registeredAt": "2026-01-11T17:10:20.109Z",
+        "lastActive": "2026-01-12T01:12:40.504Z"
+      }
+    ],
+    [
+      "0x43b09e9c7fde82e048655e17c7989dfbe838a16e",
+      {
+        "walletAddress": "0x43b09e9c7fde82e048655e17c7989dfbe838a16e",
+        "username": "commanda",
+        "totalXp": 651,
+        "practiceRuns": 3,
+        "tournamentRuns": 0,
+        "tournamentsPlayed": 0,
+        "tournamentsWon": 0,
+        "registeredAt": "2026-01-12T01:17:58.156Z",
+        "lastActive": "2026-01-12T02:04:15.170Z",
+        "currentStreak": 0,
+        "longestStreak": 0,
+        "perfectRuns": 0,
+        "totalDeaths": 0,
+        "totalCoinsCollected": 0,
+        "totalGemsCollected": 0,
+        "elo": 1000,
+        "division": "Silver",
+        "seasonXp": 0,
+        "achievementIds": [],
+        "bestPracticeTimeMs": 39959
+      }
+    ]
+  ],
+  "tournaments": [],
+  "runs": [],
+  "tournamentParticipants": [],
+  "tournamentRewards": [],
+  "practiceLeaderboard": [
+    {
+      "rank": 1,
+      "walletAddress": "0x2301cd93fec8249219b4b661b4bc81889b494de6",
+      "username": "doonnn",
+      "bestTimeMs": 0,
+      "totalRuns": 18,
+      "totalXp": 10400
+    },
+    {
+      "rank": 2,
+      "walletAddress": "0x43b09e9c7fde82e048655e17c7989dfbe838a16e",
+      "username": "commanda",
+      "bestTimeMs": 39959,
+      "totalRuns": 3,
+      "totalXp": 651
+    }
+  ],
+  "tournamentLeaderboards": [],
+  "discordPlayers": [],
+  "nextTournamentId": 1
+}

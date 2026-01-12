@@ -1,0 +1,39 @@
+{
+  "name": "labyrinth-legends",
+  "version": "1.0.0",
+  "description": "Premium on-chain 3D maze racing game on Linera Conway testnet",
+  "private": true,
+  "workspaces": [
+    "game-engine",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"pnpm run dev:backend\" \"pnpm run dev:frontend\"",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "build": "pnpm --filter frontend build && pnpm --filter backend build",
+    "build:contract": "cd contracts/labyrinth_tournament && cargo build --release --target wasm32-unknown-unknown",
+    "deploy:contract": "bash ./scripts/deploy-contract.sh",
+    "setup": "bash ./scripts/setup.sh",
+    "test:linera": "bash ./scripts/test-linera.sh",
+    "lint": "pnpm -r lint",
+    "clean": "rm -rf node_modules game-engine/node_modules backend/node_modules frontend/node_modules",
+    "start": "pnpm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "linera",
+    "blockchain",
+    "game",
+    "maze",
+    "web3"
+  ],
+  "author": "Labyrinth Legends Team",
+  "license": "MIT"
+}

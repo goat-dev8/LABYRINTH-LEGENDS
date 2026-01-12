@@ -1,0 +1,315 @@
+/* Import Google Fonts - must be first */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;800;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=MedievalSharp&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-dungeon-darker text-stone-200;
+    font-family: 'Crimson Text', serif;
+    background-image: 
+      radial-gradient(ellipse at 20% 10%, rgba(255,107,53,0.08) 0%, transparent 40%),
+      radial-gradient(ellipse at 80% 90%, rgba(251,191,36,0.05) 0%, transparent 40%),
+      linear-gradient(180deg, #050504 0%, #0a0908 50%, #050504 100%);
+    background-attachment: fixed;
+  }
+
+  /* Stone texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-dungeon-dark;
+    border-left: 1px solid rgba(251,191,36,0.1);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dungeon-lighter rounded;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gold-700;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-gold-600/40 text-gold-100;
+  }
+}
+
+@layer components {
+  /* ===== DUNGEON BUTTONS ===== */
+  .btn-dungeon {
+    @apply relative px-6 py-3 font-display font-semibold uppercase tracking-widest;
+    @apply border-2 rounded transition-all duration-300;
+    @apply hover:scale-105 active:scale-95;
+    letter-spacing: 0.15em;
+  }
+
+  .btn-gold {
+    @apply btn-dungeon border-gold-500 text-gold-400 bg-dungeon-dark;
+    @apply hover:bg-gold-900/50 hover:border-gold-400 hover:text-gold-300;
+    @apply hover:shadow-gold;
+  }
+
+  .btn-gold-filled {
+    @apply btn-dungeon bg-gradient-to-b from-gold-500 to-gold-700 text-dungeon-darker border-gold-400;
+    @apply hover:from-gold-400 hover:to-gold-600 hover:shadow-gold-lg;
+    @apply shadow-gold;
+  }
+
+  .btn-stone {
+    @apply btn-dungeon border-stone-600 text-stone-400 bg-dungeon-mid;
+    @apply hover:bg-dungeon-light hover:border-stone-500 hover:text-stone-300;
+  }
+
+  .btn-torch {
+    @apply btn-dungeon border-torch-orange text-torch-orange bg-dungeon-dark;
+    @apply hover:bg-torch-orange/20 hover:shadow-torch;
+  }
+
+  /* ===== DUNGEON CARDS ===== */
+  .card-dungeon {
+    @apply bg-dungeon-mid/90 backdrop-blur-sm rounded-lg;
+    @apply border border-dungeon-lighter/50;
+    @apply shadow-[inset_0_1px_0_rgba(255,255,255,0.05)];
+    position: relative;
+  }
+
+  .card-dungeon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(180deg, rgba(251,191,36,0.1) 0%, transparent 50%, rgba(251,191,36,0.05) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .card-gold {
+    @apply card-dungeon border-gold-700/30;
+    @apply hover:border-gold-600/50 transition-all duration-300;
+    @apply hover:shadow-gold;
+  }
+
+  .card-torch {
+    @apply card-dungeon;
+    @apply hover:shadow-torch transition-all duration-300;
+  }
+
+  /* ===== INPUT STYLES ===== */
+  .input-dungeon {
+    @apply w-full px-4 py-3 bg-dungeon-dark border border-dungeon-lighter rounded;
+    @apply text-stone-200 placeholder-stone-500 font-body text-lg;
+    @apply focus:outline-none focus:border-gold-600 focus:ring-1 focus:ring-gold-600/30;
+    @apply transition-all duration-200;
+  }
+
+  /* ===== TEXT EFFECTS ===== */
+  .text-gold-glow {
+    text-shadow: 0 0 10px rgba(251,191,36,0.5), 0 0 20px rgba(245,158,11,0.3);
+  }
+
+  .text-torch-glow {
+    text-shadow: 0 0 10px rgba(255,107,53,0.6), 0 0 20px rgba(255,68,68,0.3);
+  }
+
+  .text-shimmer {
+    background: linear-gradient(90deg, #fbbf24, #f59e0b, #fcd34d, #f59e0b, #fbbf24);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 3s linear infinite;
+  }
+
+  /* ===== DUNGEON DIVIDERS ===== */
+  .divider-gold {
+    @apply h-px bg-gradient-to-r from-transparent via-gold-600/50 to-transparent;
+  }
+
+  .divider-stone {
+    @apply h-px bg-gradient-to-r from-transparent via-stone-600/30 to-transparent;
+  }
+
+  /* ===== TORCH/GLOW EFFECTS ===== */
+  .torch-glow {
+    position: relative;
+  }
+
+  .torch-glow::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at center, rgba(255,107,53,0.15) 0%, transparent 60%);
+    pointer-events: none;
+    animation: torch-flicker 3s ease-in-out infinite;
+  }
+
+  /* ===== STAT CARDS ===== */
+  .stat-card {
+    @apply card-dungeon p-4 text-center;
+  }
+
+  .stat-value {
+    @apply font-display text-2xl font-bold text-gold-400;
+  }
+
+  .stat-label {
+    @apply text-sm text-stone-500 uppercase tracking-wider mt-1;
+  }
+
+  /* ===== NAVIGATION ===== */
+  .nav-link {
+    @apply relative px-4 py-2 font-display text-sm uppercase tracking-widest;
+    @apply text-stone-400 hover:text-gold-400 transition-colors duration-300;
+  }
+
+  .nav-link.active {
+    @apply text-gold-400;
+  }
+
+  .nav-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #fbbf24, transparent);
+  }
+
+  /* ===== LOADING ===== */
+  .spinner-gold {
+    @apply w-8 h-8 border-3 border-dungeon-light border-t-gold-500 rounded-full;
+    animation: spin 1s linear infinite;
+  }
+
+  /* ===== BADGES ===== */
+  .badge-gold {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-display uppercase tracking-wider;
+    @apply bg-gold-900/50 text-gold-400 border border-gold-700/50;
+  }
+
+  .badge-stone {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-display uppercase tracking-wider;
+    @apply bg-dungeon-light text-stone-400 border border-dungeon-lighter;
+  }
+
+  /* ===== TOOLTIP ===== */
+  .tooltip-dungeon {
+    @apply absolute z-50 px-3 py-2 text-sm bg-dungeon-dark rounded shadow-lg;
+    @apply border border-gold-700/30 whitespace-nowrap;
+  }
+
+  /* Legacy support - map old classes to new */
+  .card-dark { @apply card-dungeon; }
+  .card-neon { @apply card-gold; }
+  .btn-neon-cyan { @apply btn-gold; }
+  .btn-neon-filled-cyan { @apply btn-gold-filled; }
+  .btn-neon-outline-cyan { @apply btn-gold; }
+  .input-neon { @apply input-dungeon; }
+  .bg-dark-900 { @apply bg-dungeon-darker; }
+  .bg-dark-800 { @apply bg-dungeon-dark; }
+  .bg-dark-700 { @apply bg-dungeon-mid; }
+  .bg-dark-600 { @apply bg-dungeon-light; }
+  .bg-dark-500 { @apply bg-dungeon-lighter; }
+  .text-neon-cyan { @apply text-gold-400; }
+  .text-neon-green { @apply text-emerald-400; }
+  .text-neon-yellow { @apply text-gold-300; }
+  .text-neon-magenta { @apply text-rose-400; }
+  .border-neon-cyan { @apply border-gold-500; }
+  .border-dark-600 { @apply border-dungeon-lighter; }
+}
+
+@layer utilities {
+  /* Hide scrollbar */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #fcd34d 0%, #f59e0b 50%, #d97706 100%);
+  }
+
+  .gradient-text-torch {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #ff6b35 0%, #ff4444 100%);
+  }
+
+  /* Stone texture */
+  .stone-texture {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.1'/%3E%3C/svg%3E");
+  }
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes torch-flicker {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.9; }
+  50% { opacity: 0.95; }
+  75% { opacity: 0.85; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Dynamic SDK custom styles */
+.dynamic-widget {
+  --dynamic-font-family: 'Rajdhani', sans-serif !important;
+  --dynamic-base-1: #0a0a0f !important;
+  --dynamic-base-2: #111118 !important;
+  --dynamic-base-3: #1a1a24 !important;
+  --dynamic-base-4: #242430 !important;
+  --dynamic-text-primary: #ffffff !important;
+  --dynamic-text-secondary: #9ca3af !important;
+  --dynamic-brand-primary-color: #00f5ff !important;
+  --dynamic-badge-primary-background: #00f5ff !important;
+  --dynamic-badge-primary-color: #0a0a0f !important;
+  --dynamic-border: #2e2e3c !important;
+  --dynamic-hover: rgba(0, 245, 255, 0.1) !important;
+  --dynamic-connect-button-background: transparent !important;
+  --dynamic-connect-button-color: #00f5ff !important;
+  --dynamic-connect-button-border: 2px solid #00f5ff !important;
+}
