@@ -1,21 +1,97 @@
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Crown, Flame, Shield, Scroll } from 'lucide-react';
+import { Crown, Flame, Shield, Scroll, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 
 import { getPracticeLeaderboard } from '../lib/api';
 import { useWalletSigner, formatTime, formatXP } from '../lib/wallet';
+import { useLineraConnection } from '../hooks';
+import { lineraAdapter } from '../lib/linera';
+import { LINERA_QUERIES } from '../lib/chain/config';
 import type { LeaderboardEntry } from '../types';
+
+// Blockchain leaderboard entry type
+interface BlockchainLeaderboardEntry {
+  walletAddress: number[];
+  username: string;
+  bestTimeMs: number;
+  totalRuns: number;
+  totalXp: number;
+  rank: number;
+}
+
+// Convert wallet bytes to hex string
+function bytesToHex(bytes: number[]): string {
+  return '0x' + bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 export default function LeaderboardPage() {
   const { getAddress } = useWalletSigner();
+  const { isAppConnected } = useLineraConnection();
   const currentAddress = getAddress();
+  
+  const [blockchainLeaderboard, setBlockchainLeaderboard] = useState<LeaderboardEntry[] | null>(null);
+  const [loadingBlockchain, setLoadingBlockchain] = useState(false);
 
-  const { data: leaderboard, isLoading } = useQuery({
+  // Fetch from blockchain first when connected
+  useEffect(() => {
+    async function fetchBlockchainLeaderboard() {
+      if (!isAppConnected) return;
+      
+      setLoadingBlockchain(true);
+      try {
+        console.log('📡 Fetching leaderboard from blockchain...');
+        
+        // Get active tournament first
+        const tournamentResult = await lineraAdapter.query<{ activeTournament: { id: number } | null }>(
+          LINERA_QUERIES.getActiveTournament
+        );
+
+        if (tournamentResult.activeTournament) {
+          const tournamentId = tournamentResult.activeTournament.id;
+          
+          // Get leaderboard for this tournament
+          const result = await lineraAdapter.query<{ leaderboard: BlockchainLeaderboardEntry[] }>(
+            LINERA_QUERIES.getLeaderboard,
+            { tournamentId, limit: 100 }
+          );
+
+          if (result.leaderboard && result.leaderboard.length > 0) {
+            // Convert blockchain format to UI format
+            const converted: LeaderboardEntry[] = result.leaderboard.map((entry, index) => ({
+              rank: entry.rank || index + 1,
+              walletAddress: bytesToHex(entry.walletAddress),
+              username: entry.username,
+              bestTimeMs: entry.bestTimeMs,
+              totalRuns: entry.totalRuns,
+              totalXp: entry.totalXp,
+            }));
+            
+            setBlockchainLeaderboard(converted);
+            console.log('✅ Blockchain leaderboard loaded:', converted.length, 'entries');
+          }
+        }
+      } catch (error) {
+        console.warn('Blockchain leaderboard fetch failed:', error);
+      } finally {
+        setLoadingBlockchain(false);
+      }
+    }
+
+    fetchBlockchainLeaderboard();
+  }, [isAppConnected]);
+
+  // Backend fallback query
+  const { data: backendLeaderboard, isLoading: isLoadingBackend } = useQuery({
     queryKey: ['practiceLeaderboard'],
     queryFn: () => getPracticeLeaderboard(100),
     refetchInterval: 30000, // Refresh every 30s
   });
+
+  // Use blockchain data if available, fallback to backend
+  const leaderboard = blockchainLeaderboard || backendLeaderboard;
+  const isLoading = loadingBlockchain || (!blockchainLeaderboard && isLoadingBackend);
 
   // Find current user's rank
   const userEntry = leaderboard?.find(

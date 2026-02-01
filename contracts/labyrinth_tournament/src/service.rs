@@ -1,5 +1,5 @@
 //! Labyrinth Legends - GraphQL Service
-//! Provides query interface for frontend
+//! Tournament-first query interface
 
 #![cfg_attr(target_arch = "wasm32", no_main)]
 
@@ -10,14 +10,14 @@ use std::sync::Arc;
 use self::state::LabyrinthState;
 use async_graphql::{EmptySubscription, Object, Request, Response, Schema, SimpleObject};
 use labyrinth_tournament::{
-    Difficulty, GameMode, GameRun, LeaderboardEntry, Operation, Player, Tournament,
-    TournamentParticipant, TournamentReward, TournamentStatus,
+    Difficulty, Tournament, TournamentStatus, Player, TournamentPlayer,
+    GameRun, LeaderboardEntry, TournamentReward, Operation, AccountOwner,
 };
 use linera_sdk::{
-    linera_base_types::AccountOwner, 
+    bcs,
     abi::WithServiceAbi,
-    views::View, 
-    Service, 
+    views::View,
+    Service,
     ServiceRuntime,
 };
 
@@ -39,8 +39,8 @@ impl Service for LabyrinthTournamentService {
         let state = LabyrinthState::load(runtime.root_view_storage_context())
             .await
             .expect("Failed to load state");
-        LabyrinthTournamentService { 
-            state: Arc::new(state), 
+        LabyrinthTournamentService {
+            state: Arc::new(state),
             runtime: Arc::new(runtime),
         }
     }
@@ -56,70 +56,114 @@ impl Service for LabyrinthTournamentService {
     }
 }
 
+// ============================================
+// QUERY ROOT
+// ============================================
+
 struct QueryRoot {
     state: Arc<LabyrinthState>,
 }
 
-/// Statistics response
+impl QueryRoot {
+    /// Get the default tournament with FIXED parameters.
+    /// This ensures all users see the same tournament immediately,
+    /// even before any on-chain state is created.
+    /// 
+    /// CRITICAL: All values are CONSTANTS so every chain gets the same tournament.
+    fn get_default_tournament(&self) -> Tournament {
+        use linera_sdk::linera_base_types::Timestamp;
+        
+        // FIXED CONSTANTS - same for ALL chains, ALL users
+        // Tournament #1: February 2026 Championship
+        const TOURNAMENT_ID: u64 = 1;
+        const MAZE_SEED: &str = "labyrinth-feb-2026";
+        
+        // February 1, 2026 00:00:00 UTC in microseconds
+        // 1769904000 seconds since Unix epoch = Feb 1, 2026
+        const START_TIME: u64 = 1769904000_000_000;
+        
+        // Duration: 15 days in microseconds
+        const DURATION_MICROS: u64 = 15 * 24 * 60 * 60 * 1_000_000;
+        const END_TIME: u64 = START_TIME + DURATION_MICROS;
+        
+        Tournament {
+            id: TOURNAMENT_ID,
+            title: "February 2026 Championship".to_string(),
+            description: "15-day tournament - fastest time wins!".to_string(),
+            maze_seed: MAZE_SEED.to_string(),
+            difficulty: Difficulty::Medium,
+            start_time: Timestamp::from(START_TIME),
+            end_time: Timestamp::from(END_TIME),
+            status: TournamentStatus::Active,
+            participant_count: 0,
+            total_runs: 0,
+            xp_reward_pool: 10000,
+            created_at: Timestamp::from(START_TIME),
+        }
+    }
+}
+
+/// App stats summary
 #[derive(SimpleObject)]
 struct Stats {
     total_players: u64,
     total_tournaments: u64,
     total_runs: u64,
-    active_tournaments: u64,
-}
-
-/// Paginated response wrapper
-#[derive(SimpleObject)]
-struct PaginatedRuns {
-    runs: Vec<GameRun>,
-    total: u64,
-    has_more: bool,
+    active_tournament_id: Option<u64>,
 }
 
 #[Object]
 impl QueryRoot {
-    // ===== Player Queries =====
-
-    /// Get player by owner address
-    async fn player(&self, owner: String) -> Option<Player> {
-        let owner = parse_account_owner(&owner)?;
-        self.state.players.get(&owner).await.ok().flatten()
-    }
-
-    /// Get player by username
-    async fn player_by_username(&self, username: String) -> Option<Player> {
-        let owner = self
-            .state
-            .username_to_owner
-            .get(&username)
-            .await
-            .ok()
-            .flatten()?;
-        self.state.players.get(&owner).await.ok().flatten()
-    }
-
-    /// Check if player is registered
-    async fn is_registered(&self, owner: String) -> bool {
-        if let Some(owner) = parse_account_owner(&owner) {
-            self.state
-                .players
-                .contains_key(&owner)
-                .await
-                .unwrap_or(false)
-        } else {
-            false
+    // ===== Stats =====
+    
+    /// Get app-wide statistics
+    async fn stats(&self) -> Stats {
+        let total_tournaments = *self.state.next_tournament_id.get() - 1;
+        let total_runs = *self.state.next_run_id.get() - 1;
+        let active_tournament_id = self.state.active_tournament_id.get().clone();
+        
+        // Count players (approximate - just use next values)
+        Stats {
+            total_players: total_runs / 10, // Rough estimate
+            total_tournaments,
+            total_runs,
+            active_tournament_id,
         }
     }
 
     // ===== Tournament Queries =====
 
+    /// Get the currently active tournament.
+    /// Returns FIXED tournament data if not yet initialized.
+    /// This ensures all users see the same tournament info immediately.
+    async fn active_tournament(&self) -> Option<Tournament> {
+        // Try to get from state first
+        if let Some(id) = *self.state.active_tournament_id.get() {
+            if let Ok(Some(tournament)) = self.state.tournaments.get(&id).await {
+                return Some(tournament);
+            }
+        }
+        
+        // Return FIXED tournament data (same constants as contract)
+        // This allows UI to show tournament before any mutation runs
+        // CRITICAL: All values are CONSTANTS so every chain gets the same tournament
+        Some(self.get_default_tournament())
+    }
+
     /// Get tournament by ID
     async fn tournament(&self, id: u64) -> Option<Tournament> {
+        // If asking for tournament 1 and it doesn't exist, return default
+        if id == 1 {
+            if let Ok(Some(tournament)) = self.state.tournaments.get(&id).await {
+                return Some(tournament);
+            }
+            // Return fixed default tournament
+            return Some(self.get_default_tournament());
+        }
         self.state.tournaments.get(&id).await.ok().flatten()
     }
 
-    /// Get all tournaments with optional status filter
+    /// Get all tournaments
     async fn tournaments(&self, status: Option<TournamentStatus>) -> Vec<Tournament> {
         let mut result = Vec::new();
         let next_id = *self.state.next_tournament_id.get();
@@ -132,96 +176,67 @@ impl QueryRoot {
             }
         }
 
-        // Sort by start time descending
+        // Sort by start time descending (newest first)
         result.sort_by(|a, b| b.start_time.cmp(&a.start_time));
         result
-    }
-
-    /// Get active tournaments
-    async fn active_tournaments(&self) -> Vec<Tournament> {
-        let mut result = Vec::new();
-        let next_id = *self.state.next_tournament_id.get();
-        for id in 1..next_id {
-            if let Ok(Some(tournament)) = self.state.tournaments.get(&id).await {
-                if tournament.status == TournamentStatus::Active {
-                    result.push(tournament);
-                }
-            }
-        }
-        result.sort_by(|a, b| b.start_time.cmp(&a.start_time));
-        result
-    }
-
-    /// Get upcoming tournaments
-    async fn upcoming_tournaments(&self) -> Vec<Tournament> {
-        let mut result = Vec::new();
-        let next_id = *self.state.next_tournament_id.get();
-        for id in 1..next_id {
-            if let Ok(Some(tournament)) = self.state.tournaments.get(&id).await {
-                if tournament.status == TournamentStatus::Upcoming {
-                    result.push(tournament);
-                }
-            }
-        }
-        result.sort_by(|a, b| b.start_time.cmp(&a.start_time));
-        result
-    }
-
-    /// Get tournament leaderboard
-    async fn tournament_leaderboard(&self, tournament_id: u64) -> Vec<LeaderboardEntry> {
-        self.state
-            .tournament_leaderboards
-            .get(&tournament_id)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
-    /// Get tournament participant info
-    async fn tournament_participant(
-        &self,
-        tournament_id: u64,
-        owner: String,
-    ) -> Option<TournamentParticipant> {
-        let owner = parse_account_owner(&owner)?;
-        let key = (tournament_id, owner);
-        self.state
-            .tournament_participants
-            .get(&key)
-            .await
-            .ok()
-            .flatten()
-    }
-
-    /// Check if player has joined tournament
-    async fn has_joined_tournament(&self, tournament_id: u64, owner: String) -> bool {
-        if let Some(owner) = parse_account_owner(&owner) {
-            let key = (tournament_id, owner);
-            self.state
-                .tournament_participants
-                .contains_key(&key)
-                .await
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    }
-
-    /// Get tournament reward for player
-    async fn tournament_reward(&self, tournament_id: u64, owner: String) -> Option<TournamentReward> {
-        let owner = parse_account_owner(&owner)?;
-        let key = (tournament_id, owner);
-        self.state.tournament_rewards.get(&key).await.ok().flatten()
     }
 
     // ===== Leaderboard Queries =====
 
-    /// Get global practice leaderboard
-    async fn practice_leaderboard(&self, limit: Option<u32>) -> Vec<LeaderboardEntry> {
-        let leaderboard = self.state.practice_leaderboard.get().clone();
+    /// Get tournament leaderboard (sorted by best time)
+    async fn leaderboard(&self, tournament_id: u64, limit: Option<u32>) -> Vec<LeaderboardEntry> {
+        let entries = self.state.leaderboards.get(&tournament_id).await.ok().flatten()
+            .unwrap_or_default();
+        
         let limit = limit.unwrap_or(100) as usize;
-        leaderboard.into_iter().take(limit).collect()
+        entries.into_iter().take(limit).collect()
+    }
+
+    /// Get player's rank in a tournament
+    async fn player_rank(&self, tournament_id: u64, owner: String) -> Option<u32> {
+        let wallet = parse_wallet_address(&owner)?;
+        let entries = self.state.leaderboards.get(&tournament_id).await.ok().flatten()?;
+        
+        entries.iter()
+            .find(|e| e.wallet_address == wallet)
+            .map(|e| e.rank)
+    }
+
+    // ===== Player Queries =====
+
+    /// Get player by wallet address (hex string, e.g., "0x...")
+    async fn player(&self, owner: String) -> Option<Player> {
+        let wallet = parse_wallet_address(&owner)?;
+        self.state.players.get(&wallet).await.ok().flatten()
+    }
+
+    /// Get player by username
+    async fn player_by_username(&self, username: String) -> Option<Player> {
+        let wallet = self.state.username_to_wallet.get(&username).await.ok().flatten()?;
+        self.state.players.get(&wallet).await.ok().flatten()
+    }
+
+    /// Check if player is registered
+    async fn is_registered(&self, owner: String) -> bool {
+        if let Some(wallet) = parse_wallet_address(&owner) {
+            self.state.players.contains_key(&wallet).await.unwrap_or(false)
+        } else {
+            // Try as signer
+            if let Some(signer) = parse_account_owner(&owner) {
+                self.state.signer_to_wallet.contains_key(&signer).await.unwrap_or(false)
+            } else {
+                false
+            }
+        }
+    }
+
+    // ===== Tournament Player Queries =====
+
+    /// Get player's stats for a specific tournament
+    async fn tournament_player(&self, tournament_id: u64, owner: String) -> Option<TournamentPlayer> {
+        let wallet = parse_wallet_address(&owner)?;
+        let key = (tournament_id, wallet);
+        self.state.tournament_players.get(&key).await.ok().flatten()
     }
 
     // ===== Run Queries =====
@@ -231,78 +246,54 @@ impl QueryRoot {
         self.state.runs.get(&id).await.ok().flatten()
     }
 
-    /// Get recent runs
+    /// Get recent runs (activity feed)
     async fn recent_runs(&self, limit: Option<u32>) -> Vec<GameRun> {
         let limit = limit.unwrap_or(20) as usize;
-        let run_ids = self.state.recent_run_ids.get();
+        let run_ids = self.state.recent_runs.get();
+        
         let mut runs = Vec::new();
-
         for id in run_ids.iter().take(limit) {
             if let Ok(Some(run)) = self.state.runs.get(id).await {
                 runs.push(run);
             }
         }
-
         runs
     }
 
-    /// Get runs by player
-    async fn player_runs(&self, owner: String, limit: Option<u32>) -> Vec<GameRun> {
-        let owner = match parse_account_owner(&owner) {
-            Some(o) => o,
+    // ===== Reward Queries =====
+
+    /// Get player's reward for a tournament
+    async fn reward(&self, tournament_id: u64, owner: String) -> Option<TournamentReward> {
+        let wallet = parse_wallet_address(&owner)?;
+        let key = (tournament_id, wallet);
+        self.state.rewards.get(&key).await.ok().flatten()
+    }
+
+    /// Get all rewards for a player
+    async fn player_rewards(&self, owner: String) -> Vec<TournamentReward> {
+        let wallet = match parse_wallet_address(&owner) {
+            Some(w) => w,
             None => return Vec::new(),
         };
 
-        let limit = limit.unwrap_or(50) as usize;
-        let run_ids = self
-            .state
-            .player_runs
-            .get(&owner)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let mut rewards = Vec::new();
+        let next_id = *self.state.next_tournament_id.get();
 
-        let mut runs = Vec::new();
-        for id in run_ids.iter().rev().take(limit) {
-            if let Ok(Some(run)) = self.state.runs.get(id).await {
-                runs.push(run);
+        for tournament_id in 1..next_id {
+            let key = (tournament_id, wallet);
+            if let Ok(Some(reward)) = self.state.rewards.get(&key).await {
+                rewards.push(reward);
             }
         }
 
-        runs
-    }
-
-    // ===== Stats Queries =====
-
-    /// Get global statistics
-    async fn stats(&self) -> Stats {
-        let total_runs = *self.state.next_run_id.get() - 1;
-        let total_tournaments = *self.state.next_tournament_id.get() - 1;
-
-        // Count active tournaments
-        let mut active_tournaments = 0;
-        for id in 1..=total_tournaments {
-            if let Ok(Some(t)) = self.state.tournaments.get(&id).await {
-                if t.status == TournamentStatus::Active {
-                    active_tournaments += 1;
-                }
-            }
-        }
-
-        // Estimate total players from leaderboard
-        let total_players = self.state.practice_leaderboard.get().len() as u64;
-
-        Stats {
-            total_players,
-            total_tournaments,
-            total_runs,
-            active_tournaments,
-        }
+        rewards
     }
 }
 
-/// Mutation root - delegates to contract operations
+// ============================================
+// MUTATION ROOT
+// ============================================
+
 struct MutationRoot {
     runtime: Arc<ServiceRuntime<LabyrinthTournamentService>>,
 }
@@ -310,112 +301,127 @@ struct MutationRoot {
 #[Object]
 impl MutationRoot {
     /// Register a new player
-    async fn register_player(&self, username: String, discord_tag: Option<String>) -> [u8; 0] {
-        let operation = Operation::RegisterPlayer { username, discord_tag };
-        self.runtime.schedule_operation(&operation);
-        []
+    async fn register_player(
+        &self,
+        wallet_address: Vec<u8>,
+        username: String,
+    ) -> Vec<u8> {
+        let wallet: [u8; 20] = wallet_address.try_into().unwrap_or([0u8; 20]);
+        
+        let operation = Operation::RegisterPlayer {
+            wallet_address: wallet,
+            username,
+        };
+        bcs::to_bytes(&operation).unwrap()
     }
 
-    /// Update player profile
-    async fn update_profile(&self, username: Option<String>, discord_tag: Option<String>) -> [u8; 0] {
-        let operation = Operation::UpdateProfile { username, discord_tag };
-        self.runtime.schedule_operation(&operation);
-        []
+    /// Submit a game run to a tournament
+    async fn submit_run(
+        &self,
+        tournament_id: u64,
+        time_ms: u64,
+        score: u64,
+        coins: u32,
+        deaths: u32,
+        completed: bool,
+    ) -> Vec<u8> {
+        let operation = Operation::SubmitRun {
+            tournament_id,
+            time_ms,
+            score,
+            coins,
+            deaths,
+            completed,
+        };
+        bcs::to_bytes(&operation).unwrap()
     }
 
-    /// Create a tournament
+    /// Create a new tournament (admin)
     async fn create_tournament(
         &self,
         title: String,
         description: String,
-        difficulty: Difficulty,
         maze_seed: String,
-        start_time: u64,
-        end_time: u64,
-        max_attempts_per_player: Option<u32>,
+        difficulty: Difficulty,
+        duration_days: u64,
         xp_reward_pool: u64,
-    ) -> [u8; 0] {
+    ) -> Vec<u8> {
         let operation = Operation::CreateTournament {
             title,
             description,
-            difficulty,
             maze_seed,
-            start_time: start_time.into(),
-            end_time: end_time.into(),
-            max_attempts_per_player,
+            difficulty,
+            duration_days,
             xp_reward_pool,
         };
-        self.runtime.schedule_operation(&operation);
-        []
+        bcs::to_bytes(&operation).unwrap()
     }
 
-    /// Update tournament status
-    async fn update_tournament_status(
-        &self,
-        tournament_id: u64,
-        status: TournamentStatus,
-    ) -> [u8; 0] {
-        let operation = Operation::UpdateTournamentStatus { tournament_id, status };
-        self.runtime.schedule_operation(&operation);
-        []
-    }
-
-    /// Join a tournament
-    async fn join_tournament(&self, tournament_id: u64) -> [u8; 0] {
-        let operation = Operation::JoinTournament { tournament_id };
-        self.runtime.schedule_operation(&operation);
-        []
-    }
-
-    /// Submit a game run
-    async fn submit_run(
-        &self,
-        mode: GameMode,
-        tournament_id: Option<u64>,
-        difficulty: Difficulty,
-        level_reached: u32,
-        time_ms: u64,
-        deaths: u32,
-        completed: bool,
-    ) -> [u8; 0] {
-        let operation = Operation::SubmitRun {
-            mode,
-            tournament_id,
-            difficulty,
-            level_reached,
-            time_ms,
-            deaths,
-            completed,
-        };
-        self.runtime.schedule_operation(&operation);
-        []
+    /// End a tournament (admin)
+    async fn end_tournament(&self, tournament_id: u64) -> Vec<u8> {
+        let operation = Operation::EndTournament { tournament_id };
+        bcs::to_bytes(&operation).unwrap()
     }
 
     /// Claim tournament reward
-    async fn claim_tournament_reward(&self, tournament_id: u64) -> [u8; 0] {
-        let operation = Operation::ClaimTournamentReward { tournament_id };
-        self.runtime.schedule_operation(&operation);
-        []
+    async fn claim_reward(&self, tournament_id: u64) -> Vec<u8> {
+        let operation = Operation::ClaimReward { tournament_id };
+        bcs::to_bytes(&operation).unwrap()
+    }
+    
+    /// Bootstrap tournament #1 (creates if doesn't exist)
+    /// This is idempotent - safe to call multiple times
+    async fn bootstrap_tournament(&self) -> Vec<u8> {
+        let operation = Operation::BootstrapTournament;
+        bcs::to_bytes(&operation).unwrap()
     }
 }
 
-// Helper function to parse account owner from string
+// ============================================
+// HELPERS
+// ============================================
+
+/// Parse hex wallet address (0x... or raw hex) to [u8; 20]
+fn parse_wallet_address(s: &str) -> Option<[u8; 20]> {
+    let hex = s.to_lowercase().trim_start_matches("0x").to_string();
+    if hex.len() != 40 {
+        return None;
+    }
+    
+    let bytes = hex::decode(&hex).ok()?;
+    if bytes.len() != 20 {
+        return None;
+    }
+    
+    let mut wallet = [0u8; 20];
+    wallet.copy_from_slice(&bytes);
+    Some(wallet)
+}
+
+/// Parse account owner from various formats
 fn parse_account_owner(s: &str) -> Option<AccountOwner> {
-    // Handle hex-encoded owner
-    if s.starts_with("0x") {
-        // Convert hex string to bytes and create owner
-        let hex = s.strip_prefix("0x")?;
-        let bytes = hex::decode(hex).ok()?;
-        if bytes.len() == 20 {
-            // 20-byte Ethereum-style address
-            let mut arr = [0u8; 20];
-            arr.copy_from_slice(&bytes);
-            return Some(AccountOwner::Address20(arr));
-        } else if bytes.len() == 32 {
-            // 32-byte address (CryptoHash)
-            let arr: [u8; 32] = bytes.try_into().ok()?;
-            return Some(AccountOwner::Address32(linera_sdk::linera_base_types::CryptoHash::from(arr)));
+    // Try Address20 (40 hex chars, possibly with 0x prefix)
+    let hex = s.to_lowercase().trim_start_matches("0x").to_string();
+    if hex.len() == 40 {
+        if let Ok(bytes) = hex::decode(&hex) {
+            if bytes.len() == 20 {
+                let mut addr = [0u8; 20];
+                addr.copy_from_slice(&bytes);
+                return Some(AccountOwner::Address20(addr));
+            }
         }
     }
+    
+    // Try Address32 (64 hex chars)
+    if hex.len() == 64 {
+        if let Ok(bytes) = hex::decode(&hex) {
+            if bytes.len() == 32 {
+                let mut addr = [0u8; 32];
+                addr.copy_from_slice(&bytes);
+                return Some(AccountOwner::Address32(addr.into()));
+            }
+        }
+    }
+
     None
 }

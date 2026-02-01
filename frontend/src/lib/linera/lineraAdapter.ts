@@ -54,9 +54,19 @@ const DEFAULT_FAUCET_URL = import.meta.env.VITE_LINERA_FAUCET_URL || 'https://fa
 // Application ID (from your deployment)
 const APPLICATION_ID = import.meta.env.VITE_LINERA_APP_ID || import.meta.env.VITE_APPLICATION_ID || '';
 
+// Hub Chain ID - WHERE THE APPLICATION STATE LIVES
+// This is the chain where the application was originally deployed
+// All tournament data lives on this chain, not on user chains!
+const HUB_CHAIN_ID = import.meta.env.VITE_LINERA_CHAIN_ID || '';
+
 // Validate APPLICATION_ID at module load (warning only)
 if (!APPLICATION_ID || APPLICATION_ID === '' || APPLICATION_ID === 'placeholder') {
   console.warn('⚠️ VITE_LINERA_APP_ID is not set. Blockchain features may be limited.');
+}
+
+// Validate HUB_CHAIN_ID at module load (warning only)
+if (!HUB_CHAIN_ID || HUB_CHAIN_ID === '') {
+  console.warn('⚠️ VITE_LINERA_CHAIN_ID (hub chain) is not set. Application queries may fail.');
 }
 
 // =============================================================================
@@ -108,6 +118,7 @@ class LineraAdapterClass {
     console.log('🎮 LineraAdapter initialized');
     console.log(`   Faucet URL: ${DEFAULT_FAUCET_URL}`);
     console.log(`   Application ID: ${APPLICATION_ID?.slice(0, 16)}...`);
+    console.log(`   Hub Chain ID: ${HUB_CHAIN_ID?.slice(0, 16)}...`);
   }
 
   /**
@@ -280,8 +291,14 @@ class LineraAdapterClass {
     try {
       console.log(`🎮 Connecting to application: ${applicationId.slice(0, 16)}...`);
       
-      // Get chain instance and then application
-      const chain = await this.connection.client.chain(this.connection.chainId);
+      // CRITICAL: Use HUB_CHAIN_ID for application queries!
+      // The application state (tournaments, runs, etc.) lives on the hub chain,
+      // not on the user's personal chain.
+      const hubChainId = HUB_CHAIN_ID || this.connection.chainId;
+      console.log(`⛓️ Using hub chain for application state: ${hubChainId.slice(0, 16)}...`);
+      
+      // Get hub chain instance and then application
+      const chain = await this.connection.client.chain(hubChainId);
       const application = await chain.application(applicationId);
       
       // Set up notifications for real-time updates
@@ -344,13 +361,22 @@ class LineraAdapterClass {
   }
 
   /**
-   * Execute a GraphQL mutation (blockchain transaction)
+   * Execute a GraphQL mutation against the application.
+   * This triggers a blockchain transaction that requires wallet signing.
+   * 
+   * In Linera, mutations use the same interface as queries - 
+   * the client handles distinguishing based on GraphQL operation type.
+   * 
+   * @param graphqlMutation - GraphQL mutation string
+   * @param variables - Optional variables for the mutation
+   * @returns Parsed JSON response
    */
   async mutate<T = unknown>(
     graphqlMutation: string,
     variables?: Record<string, unknown>
   ): Promise<T> {
     // Mutations use the same interface as queries in Linera
+    // The client handles distinguishing based on GraphQL operation type
     return this.query<T>(graphqlMutation, variables);
   }
 
@@ -398,6 +424,10 @@ class LineraAdapterClass {
 
   getAutoSignerAddress(): string | null {
     return this.connection?.autoSignerAddress ?? null;
+  }
+
+  getApplicationId(): string | null {
+    return this.appConnection?.applicationId ?? null;
   }
 
   disconnect(): void {

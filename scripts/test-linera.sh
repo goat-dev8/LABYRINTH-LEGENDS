@@ -18,7 +18,7 @@ NC='\033[0m'
 
 # Configuration (from .env or defaults)
 CHAIN_ID="${LINERA_CHAIN_ID:-5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36}"
-APP_ID="${LINERA_APP_ID:-14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a}"
+APP_ID="${LINERA_APP_ID:-e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1}"
 GRAPHQL_ENDPOINT="${LINERA_GRAPHQL_ENDPOINT:-https://linera-graphql-eu.staketab.org}"
 
 echo -e "${BLUE}Configuration:${NC}"

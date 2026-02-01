@@ -575,14 +575,14 @@ linera create-application <bytecode_id> \
   --json-argument '{"hub_chain_id":"<your-chain-id>"}'
 
 # Output: Application ID (save this!)
-# 14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a
+# e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1
 ```
 
 ### Configure Frontend
 
 ```bash
 # .env file
-VITE_LINERA_APP_ID=14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a
+VITE_LINERA_APP_ID=e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1
 VITE_LINERA_FAUCET_URL=https://faucet.testnet-conway.linera.net
 VITE_API_URL=http://localhost:3001
 ```
@@ -771,7 +771,7 @@ query GetLeaderboard($limit: Int) {
 | Property | Value |
 |----------|-------|
 | **Network** | Conway Testnet |
-| **Application ID** | `14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a` |
+| **Application ID** | `e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1` |
 | **Faucet URL** | `https://faucet.testnet-conway.linera.net` |
 
 ---

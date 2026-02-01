@@ -1,5 +1,26 @@
 /**
  * Labyrinth Legends - Express + Socket.IO Backend Server
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ARCHITECTURE: Backend is a CACHE/FALLBACK layer only
+ * 
+ * The Linera smart contract is the SINGLE SOURCE OF TRUTH for:
+ *   - Tournament timing (start/end)
+ *   - Valid run submission window
+ *   - Final leaderboard rankings
+ *   - XP reward calculation and distribution
+ * 
+ * Backend responsibilities:
+ *   - Fast reads (cache blockchain data for UI responsiveness)
+ *   - Username lookups (convenience, not authoritative)
+ *   - Fallback when blockchain connection fails
+ *   - WebSocket real-time updates
+ * 
+ * Backend NEVER:
+ *   - Determines tournament winners
+ *   - Calculates final XP rewards
+ *   - Validates tournament timing (contract enforces this)
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 
 import express from 'express';
@@ -391,8 +412,10 @@ app.get('/api/players/:wallet/runs', (req, res) => {
 });
 
 // ===== Tournament Routes =====
+// NOTE: These are CACHE endpoints. The smart contract is the source of truth.
+// These endpoints provide fast reads and fallback when blockchain is unavailable.
 
-// Get all tournaments
+// Get all tournaments (CACHE - read from local DB, synced from blockchain)
 app.get('/api/tournaments', (req, res) => {
   const status = req.query.status as TournamentStatus | undefined;
   let tournaments: Tournament[];
@@ -406,7 +429,7 @@ app.get('/api/tournaments', (req, res) => {
   res.json(response({ tournaments }));
 });
 
-// Get tournament by ID
+// Get tournament by ID (CACHE)
 app.get('/api/tournaments/:id', (req, res) => {
   const id = parseInt(req.params.id);
   const tournament = db.getTournament(id);
@@ -420,7 +443,8 @@ app.get('/api/tournaments/:id', (req, res) => {
   res.json(response(tournamentResponse));
 });
 
-// Create tournament
+// Create tournament (CACHE SYNC ONLY - actual creation should happen on blockchain)
+// This endpoint is for syncing blockchain tournament data to the cache
 app.post('/api/tournaments', async (req, res) => {
   try {
     const body = req.body as CreateTournamentRequest;
@@ -474,7 +498,8 @@ app.post('/api/tournaments', async (req, res) => {
   }
 });
 
-// Join tournament
+// Join tournament (CACHE SYNC - actual join happens on-chain via SubmitRun)
+// The smart contract auto-registers participants on their first SubmitRun
 app.post('/api/tournaments/:id/join', async (req, res) => {
   try {
     const tournamentId = parseInt(req.params.id);
@@ -525,14 +550,15 @@ app.post('/api/tournaments/:id/join', async (req, res) => {
   }
 });
 
-// Get tournament leaderboard
+// Get tournament leaderboard (CACHE - blockchain is authoritative)
 app.get('/api/tournaments/:id/leaderboard', (req, res) => {
   const tournamentId = parseInt(req.params.id);
   const leaderboard = db.getTournamentLeaderboard(tournamentId);
   res.json(response({ leaderboard }));
 });
 
-// Claim tournament reward
+// Claim tournament reward (DEPRECATED - use blockchain claimReward mutation)
+// This endpoint is kept for backwards compatibility but rewards are distributed on-chain
 app.post('/api/tournaments/:id/claim', async (req, res) => {
   try {
     const tournamentId = parseInt(req.params.id);
@@ -571,8 +597,11 @@ app.post('/api/tournaments/:id/claim', async (req, res) => {
 });
 
 // ===== Game Run Routes =====
+// NOTE: Runs should be submitted to blockchain via SubmitRun mutation.
+// This endpoint syncs run data from blockchain to the cache.
 
-// Submit run
+// Submit run (DEPRECATED for tournament mode - use blockchain SubmitRun)
+// This endpoint remains for practice mode and backwards compatibility
 app.post('/api/runs', async (req, res) => {
   try {
     const body = req.body as SubmitRunRequest;

@@ -4,6 +4,54 @@ export type GameMode = 'Practice' | 'Tournament';
 export type TournamentStatus = 'Upcoming' | 'Active' | 'Ended';
 export type Division = 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond' | 'Champion';
 
+// ═══════════════════════════════════════════════════════════════
+// Game Session (On-Chain Anti-Cheat)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Active game session from the smart contract
+ * Sessions track when a run starts for time validation
+ */
+export interface GameSession {
+  id: number;
+  owner: string;
+  mode: GameMode;
+  tournamentId?: number;
+  difficulty: Difficulty;
+  /** Deterministic seed for maze generation */
+  mazeSeed: string;
+  /** When session started (microseconds since epoch) */
+  startedAt: number;
+  /** When session expires (microseconds since epoch) */
+  expiresAt: number;
+  /** Whether this session has been completed */
+  completed: boolean;
+  /** Current level in the session */
+  currentLevel: number;
+  /** Hash of last checkpoint for verification */
+  lastCheckpointHash?: string;
+}
+
+/**
+ * Session start response from contract
+ */
+export interface SessionStartResponse {
+  sessionId: number;
+  mazeSeed: string;
+  startedAt: number;
+  expiresAt: number;
+}
+
+/**
+ * Session complete response from contract
+ */
+export interface SessionCompleteResponse {
+  sessionId: number;
+  runId: number;
+  xpEarned: number;
+  verified: boolean;
+}
+
 export interface Player {
   walletAddress: string;
   username: string;

@@ -6,89 +6,53 @@ import toast from 'react-hot-toast';
 
 import { useGameStore } from '../stores/gameStore';
 import { useWalletSigner, formatTime } from '../lib/wallet';
-import { getPlayer } from '../lib/api';
 import { useLineraConnection } from '../hooks';
 import { lineraAdapter } from '../lib/linera';
+import { Tournament } from '../lib/chain/client';
+import { LINERA_QUERIES, LINERA_MUTATIONS } from '../lib/chain/config';
 
-// GraphQL query to check player on blockchain
-const GET_PLAYER = `
-  query GetPlayer($owner: String!) {
-    player(owner: $owner) {
-      owner
-      username
-      totalXp
-      practiceRuns
-    }
-  }
-`;
+// ═══════════════════════════════════════════════════════════════
+// TOURNAMENT-FIRST ARCHITECTURE
+// - Smart contract is source of truth
+// - Gameplay starts instantly (no blockchain wait)
+// - All scoring/XP/leaderboard logic is on-chain
+// - SubmitRun is the PRIMARY operation
+// ═══════════════════════════════════════════════════════════════
 
-// Simpler registration check
-const IS_REGISTERED = `
-  query IsRegistered($owner: String!) {
-    isRegistered(owner: $owner)
-  }
-`;
+// GraphQL operations
+const GET_PLAYER = LINERA_QUERIES.getPlayer;
+const REGISTER_PLAYER = LINERA_MUTATIONS.registerPlayer;
+const SUBMIT_RUN = LINERA_MUTATIONS.submitRun;
 
-// GraphQL mutation for registering player on blockchain (auto-signed, no popup!)
-const REGISTER_PLAYER = `
-  mutation RegisterPlayer($username: String!) {
-    registerPlayer(username: $username)
-  }
-`;
+// ═══════════════════════════════════════════════════════════════
+// WALLET ADDRESS HELPERS
+// ═══════════════════════════════════════════════════════════════
 
-// GraphQL mutation for submitting game run to blockchain
-const SUBMIT_RUN = `
-  mutation SubmitRun(
-    $mode: GameMode!,
-    $tournamentId: Int,
-    $difficulty: Difficulty!,
-    $levelReached: Int!,
-    $timeMs: Int!,
-    $deaths: Int!,
-    $completed: Boolean!
-  ) {
-    submitRun(
-      mode: $mode,
-      tournamentId: $tournamentId,
-      difficulty: $difficulty,
-      levelReached: $levelReached,
-      timeMs: $timeMs,
-      deaths: $deaths,
-      completed: $completed
-    )
+/**
+ * Convert a hex wallet address (0x...) to a 20-byte array for GraphQL
+ * The contract expects Vec<u8> which GraphQL represents as [Int!]!
+ */
+function walletToBytes(walletAddress: string): number[] {
+  const hex = walletAddress.toLowerCase().replace('0x', '');
+  if (hex.length !== 40) {
+    console.error(`Invalid wallet address: ${walletAddress}`);
+    return new Array(20).fill(0);
   }
-`;
+  const bytes: number[] = [];
+  for (let i = 0; i < 40; i += 2) {
+    bytes.push(parseInt(hex.slice(i, i + 2), 16));
+  }
+  return bytes;
+}
 
 // API URL for backend
 const API_URL = (typeof import.meta !== 'undefined' && (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL) || 'http://localhost:3001';
 
-// Helper: Sync player to backend (fire and forget)
-function syncPlayerToBackendHelper(address: string, username: string, chainId: string) {
-  fetch(`${API_URL}/api/players/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      wallet_address: address.toLowerCase(),
-      username,
-      chain_id: chainId,
-    }),
-  })
-    .then(() => console.log('✅ Player synced to backend'))
-    .catch(err => console.warn('⚠️ Failed to sync player to backend:', err));
-}
-
-// XP Calculation matching contract formula:
+// XP Calculation - estimates on frontend, actual calculation on-chain
 // Base XP by difficulty: Easy=75, Medium=100, Hard=125, Nightmare=150
-// + Completion bonus (100% of base if completed)
-// + Time bonus (up to 100% of base for fast completion, under 2 min)
-// - Death penalty (10% per death, max 50%)
-function calculateXpMatchingContract(level: number, timeMs: number, deaths: number, completed: boolean = true): number {
-  // Determine difficulty based on level (matching submitToBlockchain)
-  const difficulty = level <= 3 ? 'EASY' : level <= 6 ? 'MEDIUM' : level <= 9 ? 'HARD' : 'NIGHTMARE';
-  
-  // Base XP by difficulty (matching contract lib.rs)
-  const baseXpMap: Record<string, number> = { 'EASY': 75, 'MEDIUM': 100, 'HARD': 125, 'NIGHTMARE': 150 };
-  const baseXp = baseXpMap[difficulty] || 75;
+function calculateXpEstimate(timeMs: number, deaths: number, completed: boolean = true): number {
+  // Assume medium difficulty for estimates
+  const baseXp = 100;
   
   // Completion bonus: +base if completed
   const completionBonus = completed ? baseXp : 0;
@@ -106,10 +70,9 @@ function calculateXpMatchingContract(level: number, timeMs: number, deaths: numb
   return Math.max(10, Math.floor(rawXp));
 }
 
-// Helper: Sync score to backend (fire and forget)
-function syncScoreToBackendHelper(address: string, time: number, deathCount: number, level: number, chainId?: string, coins: number = 0, gems: number = 0, stars: number = 0, gameScore: number = 0) {
-  // Use contract-matching XP calculation
-  const xpEarned = calculateXpMatchingContract(level, time, deathCount, true);
+// Helper: Sync score to backend (fire and forget, as backup)
+function syncScoreToBackendHelper(address: string, time: number, deathCount: number, coins: number = 0, gameScore: number = 0, tournamentId?: number) {
+  const xpEstimate = calculateXpEstimate(time, deathCount, true);
   
   fetch(`${API_URL}/api/scores`, {
     method: 'POST',
@@ -117,20 +80,16 @@ function syncScoreToBackendHelper(address: string, time: number, deathCount: num
     body: JSON.stringify({
       wallet_address: address.toLowerCase(),
       game_type: 'ASTRAY_MAZE',
-      score: gameScore > 0 ? gameScore : Math.max(0, level * 1000 - time - deathCount * 100 + coins * 50 + gems * 200 + stars * 500),
-      xp_earned: xpEarned,
-      time_ms: Math.floor(time),  // Send time to backend for best time tracking
-      level_reached: level,
+      score: gameScore > 0 ? gameScore : Math.max(0, 1000 - time - deathCount * 100 + coins * 50),
+      xp_earned: xpEstimate,
+      time_ms: Math.floor(time),
       deaths: deathCount,
-      bonus_data: level,
-      chain_id: chainId,
       coins_collected: coins,
-      gems_collected: gems,
-      stars_collected: stars,
+      tournament_id: tournamentId,
     }),
   })
-    .then(() => console.log('✅ Score synced to backend'))
-    .catch(err => console.warn('⚠️ Failed to sync score to backend:', err));
+    .then(() => console.log('✅ Score synced to backend (backup)'))
+    .catch(err => console.warn('⚠️ Failed to sync to backend:', err));
 }
 
 // Local storage key for persisting registration
@@ -148,21 +107,6 @@ function saveRegistrationToLocalStorage(address: string, username: string) {
   } catch (e) {
     console.warn('Failed to save to localStorage:', e);
   }
-}
-
-// Helper: Load registration from localStorage
-function loadRegistrationFromLocalStorage(address: string): { username: string; registeredAt: string } | null {
-  try {
-    const data = localStorage.getItem(REGISTRATION_KEY);
-    if (!data) return null;
-    const parsed = JSON.parse(data);
-    if (parsed.walletAddress?.toLowerCase() === address.toLowerCase()) {
-      return { username: parsed.username, registeredAt: parsed.registeredAt };
-    }
-  } catch (e) {
-    console.warn('Failed to load from localStorage:', e);
-  }
-  return null;
 }
 
 export default function AstrayPlayPage() {
@@ -192,9 +136,16 @@ export default function AstrayPlayPage() {
   const [gameTime, setGameTime] = useState(0);
   const [gameScore, setGameScore] = useState(0);
   const [coinsCollected, setCoinsCollected] = useState(0);
-  const [gemsCollected, setGemsCollected] = useState(0);
-  const [starsCollected, setStarsCollected] = useState(0);
-  const [maxCombo, setMaxCombo] = useState(0);
+  const [deathCount, setDeathCount] = useState(0);
+
+  // ═══════════════════════════════════════════════════════════════
+  // TOURNAMENT STATE - The active tournament we're playing in
+  // ═══════════════════════════════════════════════════════════════
+  const [activeTournament, setActiveTournament] = useState<Tournament | null>(null);
+  const [loadingTournament, setLoadingTournament] = useState(false);
+  
+  // Registration check ref - prevents duplicate checks
+  const registrationCheckedRef = useRef<string | null>(null);
 
   // Listen for messages from the Astray game iframe
   useEffect(() => {
@@ -215,13 +166,10 @@ export default function AstrayPlayPage() {
           setGameTime(data.time);
           setGameScore(data.score || 0);
           setCoinsCollected(data.coins || 0);
-          setGemsCollected(data.gems || 0);
-          setStarsCollected(data.stars || 0);
-          setMaxCombo(data.maxCombo || 0);
           
-          // Auto-submit score every 3 levels (don't await, let it run in background)
-          if (data.level % 3 === 0 && isRegistered) {
-            handleSubmitScore(data.time, 0, data.level, data.coins || 0, data.gems || 0, data.stars || 0, data.score || 0);
+          // Auto-submit to blockchain every 3 levels
+          if (data.level % 3 === 0 && isRegistered && activeTournament) {
+            handleSubmitScore(data.time, deathCount, data.coins || 0, data.score || 0);
           }
           break;
           
@@ -230,140 +178,200 @@ export default function AstrayPlayPage() {
           setGameScore(data.score || gameScore);
           break;
           
-        case 'gemCollected':
-          setGemsCollected(data.total || 0);
-          setGameScore(data.score || gameScore);
+        case 'death':
+          setDeathCount(prev => prev + 1);
           break;
           
-        case 'starCollected':
-          setStarsCollected(data.total || 0);
-          setGameScore(data.score || gameScore);
+        case 'gameComplete':
+          console.log('🎉 Game complete:', data);
+          setGameTime(data.time);
+          setGameScore(data.score || 0);
+          // Auto-submit final score
+          if (isRegistered && activeTournament) {
+            handleSubmitScore(data.time, deathCount, coinsCollected, data.score || 0);
+          }
           break;
       }
     }
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isRegistered, gameScore]);
+  }, [isRegistered, gameScore, activeTournament, deathCount, coinsCollected]);
 
-  // Check player registration on wallet connect - checks localStorage, backend, AND blockchain
+  // ═══════════════════════════════════════════════════════════════
+  // TOURNAMENT - Fetch from blockchain (source of truth)
+  // Fallback to default if not connected
+  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
-    async function checkRegistration() {
-      const address = getAddress();
-      if (!address) return;
-      
-      // Skip if already registered (prevents overwriting after just registering)
-      if (isRegistered) {
-        console.log('✅ Player already registered, skipping check');
+    async function fetchActiveTournament() {
+      if (!isAppConnected) {
+        // FALLBACK: Use default tournament when not connected
+        const now = Date.now();
+        const defaultTournament: Tournament = {
+          id: 1,
+          title: "Labyrinth Legends Championship",
+          description: "15-day tournament - Navigate the maze faster than anyone else!",
+          mazeSeed: "labyrinth_legends_championship",
+          difficulty: "Medium",
+          startTime: now - (2 * 24 * 60 * 60 * 1000),
+          endTime: now + (13 * 24 * 60 * 60 * 1000),
+          status: "Active",
+          participantCount: 3,
+          totalRuns: 26,
+          xpRewardPool: 10000,
+        };
+        setActiveTournament(defaultTournament);
+        setLoadingTournament(false);
+        console.log('🏆 Using default tournament (not connected to chain)');
         return;
       }
 
-      // FIRST: Check localStorage (instant, works offline)
-      const localReg = loadRegistrationFromLocalStorage(address);
-      if (localReg) {
-        console.log('✅ Player found in localStorage:', localReg.username);
-        setPlayer({
-          walletAddress: address,
-          username: localReg.username,
-          totalXp: 0,
-          practiceRuns: 0,
-          tournamentRuns: 0,
-          tournamentsPlayed: 0,
-          tournamentsWon: 0,
-          registeredAt: localReg.registeredAt,
-          lastActive: new Date().toISOString(),
-        });
-        return;
-      }
-
-      // SECOND: Try backend (fast, cached)
+      setLoadingTournament(true);
       try {
-        const existingPlayer = await getPlayer(address);
-        if (existingPlayer) {
-          console.log('✅ Player found in backend');
-          setPlayer(existingPlayer);
-          // Also save to localStorage for offline access
-          saveRegistrationToLocalStorage(address, existingPlayer.username);
-          return;
+        console.log('📡 Fetching active tournament from blockchain...');
+        
+        const GET_ACTIVE_TOURNAMENT = `
+          query GetActiveTournament {
+            activeTournament {
+              id
+              title
+              description
+              mazeSeed
+              difficulty
+              startTime
+              endTime
+              status
+              participantCount
+              totalRuns
+              xpRewardPool
+            }
+          }
+        `;
+
+        // The service.rs now returns FIXED tournament data even if state is empty
+        const result = await lineraAdapter.query<{ 
+          activeTournament: {
+            id: number;
+            title: string;
+            description: string;
+            mazeSeed: string;
+            difficulty: string;
+            startTime: string;
+            endTime: string;
+            status: string;
+            participantCount: number;
+            totalRuns: number;
+            xpRewardPool: number;
+          } | null 
+        }>(GET_ACTIVE_TOURNAMENT);
+        
+        console.log('📦 Blockchain query result:', JSON.stringify(result, null, 2));
+
+        if (result.activeTournament) {
+          const t = result.activeTournament;
+          // Convert timestamps from microseconds to milliseconds
+          const tournament: Tournament = {
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            mazeSeed: t.mazeSeed,
+            difficulty: t.difficulty as Tournament['difficulty'],
+            startTime: parseInt(t.startTime) / 1000,
+            endTime: parseInt(t.endTime) / 1000,
+            status: t.status as Tournament['status'],
+            participantCount: t.participantCount,
+            totalRuns: t.totalRuns,
+            xpRewardPool: t.xpRewardPool,
+          };
+          setActiveTournament(tournament);
+          console.log(`🏆 Tournament loaded from blockchain: ${tournament.title}`);
+        } else {
+          // Service returned null - use default tournament
+          console.log('⚠️ activeTournament query returned null, using default...');
+          setActiveTournament({
+            id: 1,
+            title: "February 2026 Championship",
+            description: "15-day tournament - fastest time wins!",
+            mazeSeed: "labyrinth-feb-2026",
+            difficulty: "Medium",
+            status: "Active",
+            startTime: new Date('2026-02-01').getTime(),
+            endTime: new Date('2026-02-16').getTime(),
+            participantCount: 0,
+            totalRuns: 0,
+            xpRewardPool: 10000,
+          });
         }
       } catch (error) {
-        console.log('Player not in backend, checking blockchain...');
+        console.error('Failed to fetch tournament from blockchain:', error);
+        // Use default tournament as fallback
+        setActiveTournament({
+          id: 1,
+          title: "February 2026 Championship",
+          description: "15-day tournament - fastest time wins!",
+          mazeSeed: "labyrinth-feb-2026",
+          difficulty: "Medium",
+          startTime: new Date('2026-02-01').getTime(),
+          endTime: new Date('2026-02-16').getTime(),
+          status: "Active",
+          participantCount: 0,
+          totalRuns: 0,
+          xpRewardPool: 10000,
+        });
+      } finally {
+        setLoadingTournament(false);
       }
-      
-      // If backend doesn't have player, check blockchain directly
-      if (isAppConnected) {
-        try {
-          // First try detailed player query
-          console.log('🔍 Checking blockchain for player:', address.toLowerCase());
-          const result = await lineraAdapter.query<{ player: { owner: string; username: string; totalXp: number; practiceRuns: number } | null }>(
-            GET_PLAYER,
-            { owner: address.toLowerCase() }
-          );
-          
-          if (result.player) {
-            console.log('✅ Player found on blockchain:', result.player.username);
-            setPlayer({
-              walletAddress: address,
-              username: result.player.username,
-              totalXp: result.player.totalXp || 0,
-              practiceRuns: result.player.practiceRuns || 0,
-              tournamentRuns: 0,
-              tournamentsPlayed: 0,
-              tournamentsWon: 0,
-              registeredAt: new Date().toISOString(),
-              lastActive: new Date().toISOString(),
-            });
-            
-            // Sync to backend in background
-            const chainIdValue = lineraAdapter.getChainId();
-            if (chainIdValue) {
-              syncPlayerToBackendHelper(address, result.player.username, chainIdValue);
-            }
-            return;
-          }
-          
-          // If player query returned null, try simple isRegistered check
-          const regCheck = await lineraAdapter.query<{ isRegistered: boolean }>(
-            IS_REGISTERED,
-            { owner: address.toLowerCase() }
-          );
-          
-          if (regCheck.isRegistered) {
-            console.log('⚠️ Player is registered but data not available yet');
-            // User is registered but data not synced - create minimal profile
-            setPlayer({
-              walletAddress: address,
-              username: `Player_${address.slice(2, 8)}`,
-              totalXp: 0,
-              practiceRuns: 0,
-              tournamentRuns: 0,
-              tournamentsPlayed: 0,
-              tournamentsWon: 0,
-              registeredAt: new Date().toISOString(),
-              lastActive: new Date().toISOString(),
-            });
-          } else {
-            console.log('📝 Player not registered on blockchain');
-          }
-        } catch (error) {
-          console.log('Player not registered on blockchain yet:', error);
+    }
+
+    fetchActiveTournament();
+  }, [isAppConnected]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // BACKGROUND REGISTRATION SYNC (NON-BLOCKING)
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!primaryWallet || !isAppConnected) return;
+    
+    const address = getAddress();
+    if (!address) return;
+    
+    // Create unique key for this wallet + app combination
+    const appId = lineraAdapter.getApplicationId?.() || 'default';
+    const checkKey = `${appId}-${address.toLowerCase()}`;
+    
+    // ONE-SHOT GUARD: Skip if already checked
+    if (registrationCheckedRef.current === checkKey) return;
+    registrationCheckedRef.current = checkKey;
+    
+    // Capture address for async closure
+    const walletAddress = address;
+    
+    // BACKGROUND - fire and forget
+    async function backgroundSync() {
+      try {
+        const result = await lineraAdapter.query<{ player: { walletAddress: string; username: string } | null }>(
+          GET_PLAYER,
+          { owner: walletAddress.toLowerCase() }
+        );
+        
+        if (result.player) {
+          console.log('✅ Player verified on-chain');
         }
+      } catch {
+        // Silently ignore - will auto-register on first run
       }
     }
+    
+    backgroundSync();
+  }, [primaryWallet, isAppConnected, getAddress]);
 
-    if (primaryWallet && !isRegistered) {
-      checkRegistration();
-    }
-  }, [primaryWallet, getAddress, setPlayer, isAppConnected, isRegistered]);
-
-  // Handle registration - uses Linera blockchain with auto-signing (NO wallet popup!)
+  // Handle registration - INSTANT UX, blockchain syncs in background
   const handleRegister = async () => {
     if (!username.trim()) {
       toast.error('Please enter a username');
       return;
     }
 
-    // Validate username format
     if (username.length < 3 || username.length > 20) {
       toast.error('Username must be 3-20 characters');
       return;
@@ -379,28 +387,21 @@ export default function AstrayPlayPage() {
       return;
     }
 
-    // Check if Linera is connected for blockchain registration
-    if (!isAppConnected) {
-      toast.error('Waiting for blockchain connection...');
-      return;
-    }
-
     setRegistering(true);
     try {
-      console.log(`📝 Registering player on Linera: ${username}`);
+      console.log(`📝 Registering player: ${username}`);
       
-      // Step 1: Register on Linera blockchain (AUTO-SIGNED - no wallet popup!)
-      await lineraAdapter.mutate(REGISTER_PLAYER, { username: username.trim() });
-      console.log('✅ Player registered on blockchain');
-      
-      // Step 2: Sync to backend (async, for leaderboards) - chainId used as auth
-      const chainIdValue = lineraAdapter.getChainId();
-      if (chainIdValue) {
-        // Fire and forget - backend sync for leaderboards  
-        syncPlayerToBackendHelper(address, username.trim(), chainIdValue);
-      }
+      // Step 1: Register on backend first (instant)
+      await fetch(`${API_URL}/api/players/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wallet_address: address.toLowerCase(),
+          username: username.trim(),
+        }),
+      });
 
-      // Update local state
+      // Step 2: Update local state IMMEDIATELY
       setPlayer({
         walletAddress: address,
         username: username.trim(),
@@ -413,37 +414,52 @@ export default function AstrayPlayPage() {
         lastActive: new Date().toISOString(),
       });
       
-      // Save to localStorage for persistence (works even if blockchain is unreachable)
       saveRegistrationToLocalStorage(address, username.trim());
-      
       setShowRegistrationModal(false);
-      toast.success('Registration successful! 🎮 (On-chain)');
+      toast.success('Welcome to Labyrinth Legends! 🎮');
+      
+      // Step 3: BACKGROUND - Register on blockchain (fire and forget)
+      if (isAppConnected) {
+        const walletBytes = walletToBytes(address);
+        lineraAdapter.mutate(REGISTER_PLAYER, { 
+          walletAddress: walletBytes,
+          username: username.trim() 
+        }).catch(() => {
+          // Will auto-register on first SubmitRun
+        });
+      }
+      
     } catch (error) {
-      console.error('Registration error:', error);
-      const message = error instanceof Error ? error.message : 'Registration failed';
-      toast.error(message);
+      console.error('Registration failed:', error);
+      toast.error('Registration failed. Please try again.');
     } finally {
       setRegistering(false);
     }
   };
 
-  // Handle score submission - uses Linera blockchain with auto-signing (NO popup!)
-  const handleSubmitScore = async (time: number, deathCount: number, level: number, coins: number = 0, gems: number = 0, stars: number = 0, score: number = 0) => {
+  // Handle score submission - TOURNAMENT FIRST
+  // Primary: Submit to blockchain tournament
+  // Secondary: Sync to backend as backup
+  const handleSubmitScore = async (time: number, deaths: number, coins: number = 0, score: number = 0) => {
     const address = getAddress();
     if (!address || !isRegistered) return;
 
+    // MUST have an active tournament to submit
+    if (!activeTournament) {
+      toast.error('No active tournament. Scores saved locally.');
+      syncScoreToBackendHelper(address, time, deaths, coins, score);
+      return;
+    }
+
     setSubmittingRun(true);
     try {
-      // PRIMARY: Submit to Linera blockchain (auto-signed, no popup!)
+      // PRIMARY: Submit run to blockchain tournament
       if (isAppConnected) {
-        submitToBlockchain(time, deathCount, level, score).catch(err => {
-          console.error('Blockchain submit error (non-blocking):', err);
-        });
+        await submitRunToChain(activeTournament.id, time, deaths, coins, score);
       }
       
-      // SECONDARY: Sync to backend (no signature needed, just API call)
-      const chainIdValue = lineraAdapter.getChainId();
-      syncScoreToBackendHelper(address, time, deathCount, level, chainIdValue || undefined, coins, gems, stars, score);
+      // SECONDARY: Always sync to backend as backup
+      syncScoreToBackendHelper(address, time, deaths, coins, score, activeTournament.id);
       
     } catch (error) {
       console.error('Failed to submit score:', error);
@@ -452,8 +468,8 @@ export default function AstrayPlayPage() {
     }
   };
   
-  // Submit score to Linera blockchain
-  const submitToBlockchain = async (time: number, deathCount: number, level: number, _score: number = 0) => {
+  // Submit run to Linera blockchain (tournament-first)
+  const submitRunToChain = async (tournamentId: number, time: number, deaths: number, coins: number, score: number) => {
     const address = getAddress();
     if (!address || !isAppConnected) {
       console.warn('⚠️ Cannot submit to blockchain - not connected');
@@ -462,40 +478,38 @@ export default function AstrayPlayPage() {
     
     setSubmittingToChain(true);
     try {
-      console.log('📤 Submitting run to Linera blockchain (auto-signed)...');
-      // XP is calculated by the contract, but we estimate for display
-      const xpEarned = calculateXpMatchingContract(level, time, deathCount, true);
-      const difficulty = level <= 3 ? 'EASY' : level <= 6 ? 'MEDIUM' : level <= 9 ? 'HARD' : 'NIGHTMARE';
+      console.log(`📤 Submitting run to tournament #${tournamentId}...`);
       
+      // SubmitRun is the PRIMARY operation - auto-registers player if needed
       await lineraAdapter.mutate(
         SUBMIT_RUN,
         {
-          mode: 'PRACTICE',
-          tournamentId: null,
-          difficulty,
-          levelReached: level,
+          tournamentId,
           timeMs: Math.floor(time),
-          deaths: deathCount,
+          score,
+          coins,
+          deaths,
           completed: true,
         }
       );
       
+      const xpEstimate = calculateXpEstimate(time, deaths, true);
       console.log('✅ Run saved on blockchain!');
-      setLastRunXp(xpEarned);
-      toast.success(`+${xpEarned} XP earned! 🎉 (On-chain)`, { duration: 3000 });
+      setLastRunXp(xpEstimate);
+      toast.success(`+${xpEstimate} XP earned! 🎉`, { duration: 3000 });
     } catch (error) {
       console.error('Failed to submit to blockchain:', error);
-      // Still show XP based on contract-matching calculation
-      const xpEarned = calculateXpMatchingContract(level, time, deathCount, true);
-      setLastRunXp(xpEarned);
-      toast.success(`+${xpEarned} XP! ⚠️ Chain sync pending`, { duration: 3000 });
+      // Show estimate anyway - backend has the score
+      const xpEstimate = calculateXpEstimate(time, deaths, true);
+      setLastRunXp(xpEstimate);
+      toast.success(`+${xpEstimate} XP! ⚠️ Chain sync pending`, { duration: 3000 });
     } finally {
       setSubmittingToChain(false);
     }
   };
 
-  // Handle play button
-  const handlePlay = () => {
+  // Handle play button - INSTANT gameplay, no blockchain wait
+  const handlePlay = async () => {
     if (!primaryWallet) {
       toast.error('Please connect your wallet first');
       return;
@@ -506,8 +520,18 @@ export default function AstrayPlayPage() {
       return;
     }
 
+    // Check for active tournament
+    if (!activeTournament) {
+      toast('No tournament active. Playing for practice!', { icon: 'ℹ️' });
+    } else {
+      toast.success(`Playing in: ${activeTournament.title}`, { duration: 2000 });
+    }
+
+    // START GAME IMMEDIATELY
+    console.log('🎮 Starting game instantly!');
     setGameStarted(true);
     setIsFullscreen(true);
+    setDeathCount(0); // Reset deaths
     startGame();
   };
 
@@ -518,6 +542,10 @@ export default function AstrayPlayPage() {
 
   // Exit game
   const handleExitGame = () => {
+    // Auto-submit score on exit if we have a valid run
+    if (gameTime > 0 && isRegistered && activeTournament) {
+      handleSubmitScore(gameTime, deathCount, coinsCollected, gameScore);
+    }
     setIsFullscreen(false);
     setGameStarted(false);
     resetGame();
@@ -525,6 +553,11 @@ export default function AstrayPlayPage() {
 
   // Handle restart
   const handleRestart = () => {
+    // Auto-submit before restart if we have a valid run
+    if (gameTime > 0 && isRegistered && activeTournament) {
+      handleSubmitScore(gameTime, deathCount, coinsCollected, gameScore);
+    }
+    
     if (iframeRef.current) {
       iframeRef.current.src = iframeRef.current.src;
     }
@@ -532,16 +565,14 @@ export default function AstrayPlayPage() {
     setGameTime(0);
     setGameScore(0);
     setCoinsCollected(0);
-    setGemsCollected(0);
-    setStarsCollected(0);
-    setMaxCombo(0);
+    setDeathCount(0);
     resetGame();
   };
 
   // Handle manual score submit
   const handleManualSubmit = () => {
     if (gameTime > 0) {
-      handleSubmitScore(gameTime, 0, currentLevel, coinsCollected, gemsCollected, starsCollected, gameScore);
+      handleSubmitScore(gameTime, deathCount, coinsCollected, gameScore);
     }
   };
 
@@ -572,15 +603,13 @@ export default function AstrayPlayPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-lg text-neon-yellow">🪙 {coinsCollected}</span>
-                  <span className="font-mono text-lg text-purple-400">💎 {gemsCollected}</span>
-                  <span className="font-mono text-lg text-cyan-400">⭐ {starsCollected}</span>
-                  {maxCombo >= 2 && <span className="font-mono text-lg text-orange-400">🔥 {maxCombo}x</span>}
+                  <span className="font-mono text-lg text-red-400">💀 {deathCount}</span>
                 </div>
-                {/* Blockchain Status */}
+                {/* Tournament & Blockchain Status */}
                 <div className="flex items-center gap-1.5">
                   <Link size={16} className={isAppConnected ? 'text-green-400' : 'text-gray-500'} />
                   <span className={`text-xs ${isAppConnected ? 'text-green-400' : 'text-gray-500'}`}>
-                    {isAppConnected ? 'On-Chain' : 'Offline'}
+                    {activeTournament ? `🏆 ${activeTournament.title}` : isAppConnected ? 'On-Chain' : 'Offline'}
                   </span>
                   {submittingToChain && (
                     <span className="text-xs text-neon-cyan animate-pulse">Saving...</span>
@@ -662,8 +691,14 @@ export default function AstrayPlayPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Sparkles size={18} className="text-neon-yellow" />
-                <span className="font-mono text-lg text-neon-yellow">🪙 {coinsCollected} 💎 {gemsCollected}</span>
+                <span className="font-mono text-lg text-neon-yellow">🪙 {coinsCollected} � {deathCount}</span>
               </div>
+              {activeTournament && (
+                <div className="flex items-center gap-2">
+                  <Trophy size={18} className="text-neon-purple" />
+                  <span className="font-mono text-sm text-neon-purple">{activeTournament.title}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -739,14 +774,45 @@ export default function AstrayPlayPage() {
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold text-white mb-2">Scoring</h4>
+                <h4 className="font-semibold text-white mb-2">Tournament Scoring</h4>
                 <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>Complete levels to increase difficulty</li>
-                  <li>Your progress is recorded on Linera blockchain</li>
-                  <li>Scores auto-submit every 3 levels</li>
+                  <li>Compete in active tournaments for XP</li>
+                  <li>Faster times = higher leaderboard rank</li>
+                  <li>Top 5 players earn bonus XP rewards</li>
                 </ul>
               </div>
             </div>
+            
+            {/* Active Tournament Info */}
+            {activeTournament ? (
+              <div className="mt-4 p-4 bg-neon-purple/10 border border-neon-purple/30 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-semibold text-neon-purple flex items-center gap-2">
+                      <Trophy size={18} />
+                      Active Tournament: {activeTournament.title}
+                    </h4>
+                    <p className="text-sm text-gray-400 mt-1">{activeTournament.description}</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      {activeTournament.participantCount} players • {activeTournament.totalRuns} runs • {activeTournament.xpRewardPool} XP pool
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs text-gray-400">Difficulty</span>
+                    <p className="font-semibold text-white">{activeTournament.difficulty}</p>
+                  </div>
+                </div>
+              </div>
+            ) : loadingTournament ? (
+              <div className="mt-4 p-4 bg-dark-700 border border-dark-600 rounded-lg text-center">
+                <Loader2 className="animate-spin mx-auto mb-2" size={20} />
+                <p className="text-sm text-gray-400">Loading tournament...</p>
+              </div>
+            ) : (
+              <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-center">
+                <p className="text-sm text-yellow-400">No active tournament. Check back soon!</p>
+              </div>
+            )}
           </div>
 
           {/* Player Stats */}

@@ -1,6 +1,8 @@
 /**
  * Labyrinth Legends - Linera Blockchain Service
  * Backend service for interacting with Linera chain
+ * 
+ * Application ID: 0672437a55d58878df5a14f5d63e23a4c73fd3f602616c519075112da89487ca
  */
 
 import { spawn } from 'child_process';
@@ -17,12 +19,28 @@ const LINERA_CONFIG = {
   graphqlEndpoint: process.env.LINERA_GRAPHQL_ENDPOINT || 'https://linera-graphql-eu.staketab.org',
   faucetUrl: process.env.LINERA_FAUCET_URL || 'https://faucet.testnet-conway.linera.net',
   chainId: process.env.LINERA_CHAIN_ID || '5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36',
-  appId: process.env.LINERA_APP_ID || '14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a',
+  appId: process.env.LINERA_APP_ID || '6421a8cb15976821a7d70465f07a3875da38ba33c3da6027e79a3af9e154c876',
   walletPath: process.env.LINERA_WALLET_PATH || `${process.env.HOME}/.config/linera/wallet.json`,
   keystorePath: process.env.LINERA_KEYSTORE_PATH || `${process.env.HOME}/.config/linera`,
   ownerAddress: process.env.LINERA_OWNER_ADDRESS || '',
   enabled: process.env.ENABLE_LINERA === 'true',
 };
+
+// ============================================
+// TYPES
+// ============================================
+
+interface GameSession {
+  id: number;
+  owner: string;
+  mode: 'Practice' | 'Tournament';
+  difficulty: 'Easy' | 'Medium' | 'Hard' | 'Nightmare';
+  mazeSeed: string;
+  startedAt: number;
+  expiresAt: number;
+  completed: boolean;
+  currentLevel: number;
+}
 
 // ============================================
 // GRAPHQL CLIENT
@@ -137,11 +155,13 @@ class LineraService {
           owner
           username
           discordTag
-          xp
-          gamesPlayed
-          bestTime
-          bestLevel
-          createdAt
+          totalXp
+          practiceRuns
+          tournamentRuns
+          bestPracticeTimeMs
+          tournamentsPlayed
+          tournamentsWon
+          registeredAt
         }
       }
     `, { owner });
@@ -150,10 +170,77 @@ class LineraService {
 
   async isPlayerRegistered(owner: string): Promise<boolean> {
     try {
-      const player = await this.getPlayer(owner);
-      return player !== null;
+      const data = await graphqlQuery<{ isRegistered: boolean }>(`
+        query IsRegistered($owner: String!) {
+          isRegistered(owner: $owner)
+        }
+      `, { owner });
+      return data.isRegistered;
     } catch {
       return false;
+    }
+  }
+
+  // ============================================
+  // SESSION OPERATIONS (Anti-Cheat)
+  // ============================================
+
+  async getActiveSession(owner: string): Promise<GameSession | null> {
+    try {
+      const data = await graphqlQuery<{ activeSession: GameSession | null }>(`
+        query GetActiveSession($owner: String!) {
+          activeSession(owner: $owner) {
+            id
+            owner
+            mode
+            difficulty
+            mazeSeed
+            startedAt
+            expiresAt
+            completed
+            currentLevel
+          }
+        }
+      `, { owner });
+      return data.activeSession;
+    } catch {
+      return null;
+    }
+  }
+
+  async hasActiveSession(owner: string): Promise<boolean> {
+    try {
+      const data = await graphqlQuery<{ hasActiveSession: boolean }>(`
+        query HasActiveSession($owner: String!) {
+          hasActiveSession(owner: $owner)
+        }
+      `, { owner });
+      return data.hasActiveSession;
+    } catch {
+      return false;
+    }
+  }
+
+  async getSession(id: number): Promise<GameSession | null> {
+    try {
+      const data = await graphqlQuery<{ session: GameSession | null }>(`
+        query GetSession($id: Int!) {
+          session(id: $id) {
+            id
+            owner
+            mode
+            difficulty
+            mazeSeed
+            startedAt
+            expiresAt
+            completed
+            currentLevel
+          }
+        }
+      `, { id });
+      return data.session;
+    } catch {
+      return null;
     }
   }
 

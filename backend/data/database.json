@@ -46,14 +46,14 @@
       "0x43b09e9c7fde82e048655e17c7989dfbe838a16e",
       {
         "walletAddress": "0x43b09e9c7fde82e048655e17c7989dfbe838a16e",
-        "username": "commanda",
-        "totalXp": 651,
-        "practiceRuns": 3,
+        "username": "cewq",
+        "totalXp": 1191,
+        "practiceRuns": 6,
         "tournamentRuns": 0,
         "tournamentsPlayed": 0,
         "tournamentsWon": 0,
         "registeredAt": "2026-01-12T01:17:58.156Z",
-        "lastActive": "2026-01-12T02:04:15.170Z",
+        "lastActive": "2026-01-26T19:01:04.126Z",
         "currentStreak": 0,
         "longestStreak": 0,
         "perfectRuns": 0,
@@ -65,6 +65,56 @@
         "seasonXp": 0,
         "achievementIds": [],
         "bestPracticeTimeMs": 39959
+      }
+    ],
+    [
+      "0xf0bb386b4c0fd7890c79dc8fb7f173dba2491224",
+      {
+        "walletAddress": "0xf0bb386b4c0fd7890c79dc8fb7f173dba2491224",
+        "username": "wdcd",
+        "totalXp": 2087,
+        "practiceRuns": 8,
+        "tournamentRuns": 0,
+        "tournamentsPlayed": 0,
+        "tournamentsWon": 0,
+        "registeredAt": "2026-01-26T19:13:52.359Z",
+        "lastActive": "2026-02-01T22:00:16.367Z",
+        "currentStreak": 0,
+        "longestStreak": 0,
+        "perfectRuns": 0,
+        "totalDeaths": 0,
+        "totalCoinsCollected": 0,
+        "totalGemsCollected": 0,
+        "elo": 1000,
+        "division": "Silver",
+        "seasonXp": 0,
+        "achievementIds": [],
+        "bestPracticeTimeMs": 16030
+      }
+    ],
+    [
+      "0xd462cc45b06ae45dacd93f7b3979758c7b4a2cc0",
+      {
+        "walletAddress": "0xd462cc45b06ae45dacd93f7b3979758c7b4a2cc0",
+        "username": "now",
+        "totalXp": 273,
+        "practiceRuns": 1,
+        "tournamentRuns": 0,
+        "tournamentsPlayed": 0,
+        "tournamentsWon": 0,
+        "registeredAt": "2026-02-01T19:30:21.146Z",
+        "lastActive": "2026-02-01T19:31:10.460Z",
+        "currentStreak": 0,
+        "longestStreak": 0,
+        "perfectRuns": 0,
+        "totalDeaths": 0,
+        "totalCoinsCollected": 0,
+        "totalGemsCollected": 0,
+        "elo": 1000,
+        "division": "Silver",
+        "seasonXp": 0,
+        "achievementIds": [],
+        "bestPracticeTimeMs": 32688
       }
     ]
   ],
@@ -83,11 +133,27 @@
     },
     {
       "rank": 2,
+      "walletAddress": "0xf0bb386b4c0fd7890c79dc8fb7f173dba2491224",
+      "username": "wdcd",
+      "bestTimeMs": 16030,
+      "totalRuns": 8,
+      "totalXp": 2087
+    },
+    {
+      "rank": 3,
       "walletAddress": "0x43b09e9c7fde82e048655e17c7989dfbe838a16e",
-      "username": "commanda",
+      "username": "cewq",
       "bestTimeMs": 39959,
-      "totalRuns": 3,
-      "totalXp": 651
+      "totalRuns": 6,
+      "totalXp": 1191
+    },
+    {
+      "rank": 4,
+      "walletAddress": "0xd462cc45b06ae45dacd93f7b3979758c7b4a2cc0",
+      "username": "now",
+      "bestTimeMs": 32688,
+      "totalRuns": 1,
+      "totalXp": 273
     }
   ],
   "tournamentLeaderboards": [],

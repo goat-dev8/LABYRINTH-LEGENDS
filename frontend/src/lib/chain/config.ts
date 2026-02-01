@@ -1,6 +1,6 @@
 /**
  * Labyrinth Legends - Linera Blockchain Configuration
- * Auto-generated with deployed chain and application IDs
+ * Tournament-First Architecture - All scoring on-chain
  */
 
 // ============================================
@@ -19,7 +19,7 @@ export const LINERA_CONFIG = {
   chainId: import.meta.env.VITE_LINERA_CHAIN_ID || '5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36',
   
   // Deployed Application ID
-  appId: import.meta.env.VITE_LINERA_APP_ID || '14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a',
+  appId: import.meta.env.VITE_LINERA_APP_ID || '6421a8cb15976821a7d70465f07a3875da38ba33c3da6027e79a3af9e154c876',
   
   // Full application endpoint
   get appEndpoint() {
@@ -31,27 +31,51 @@ export const LINERA_CONFIG = {
 } as const;
 
 // ============================================
-// GRAPHQL QUERIES
+// GRAPHQL QUERIES - Tournament First
 // ============================================
 
 export const LINERA_QUERIES = {
-  // Get player data
-  getPlayer: `
-    query GetPlayer($owner: String!) {
-      player(owner: $owner) {
-        owner
-        username
-        discordTag
-        xp
-        gamesPlayed
-        bestTime
-        bestLevel
-        createdAt
+  // ===== TOURNAMENT QUERIES =====
+  
+  // Get active tournament (the one currently accepting runs)
+  getActiveTournament: `
+    query GetActiveTournament {
+      activeTournament {
+        id
+        title
+        description
+        mazeSeed
+        difficulty
+        startTime
+        endTime
+        status
+        participantCount
+        totalRuns
+        xpRewardPool
       }
     }
   `,
   
-  // Get all tournaments
+  // Get tournament by ID
+  getTournament: `
+    query GetTournament($id: Int!) {
+      tournament(id: $id) {
+        id
+        title
+        description
+        mazeSeed
+        difficulty
+        startTime
+        endTime
+        status
+        participantCount
+        totalRuns
+        xpRewardPool
+      }
+    }
+  `,
+  
+  // Get all tournaments (optionally filtered by status)
   getTournaments: `
     query GetTournaments($status: TournamentStatus) {
       tournaments(status: $status) {
@@ -63,69 +87,100 @@ export const LINERA_QUERIES = {
         startTime
         endTime
         status
-        creator
         participantCount
         totalRuns
         xpRewardPool
-        maxAttemptsPerPlayer
       }
     }
   `,
   
-  // Get tournament details with leaderboard
-  getTournament: `
-    query GetTournament($id: Int!) {
-      tournament(id: $id) {
-        id
-        title
-        description
-        difficulty
-        mazeSeed
-        startTime
-        endTime
-        status
-        creator
-        participantCount
-        totalRuns
-        xpRewardPool
-        maxAttemptsPerPlayer
-      }
-      tournamentLeaderboard(tournamentId: $id) {
-        owner
+  // ===== LEADERBOARD QUERIES =====
+  
+  // Get tournament leaderboard (sorted by best time)
+  getLeaderboard: `
+    query GetLeaderboard($tournamentId: Int!, $limit: Int) {
+      leaderboard(tournamentId: $tournamentId, limit: $limit) {
+        walletAddress
         username
-        bestTime
-        bestLevel
-        attempts
+        bestTimeMs
+        totalRuns
+        totalXpEarned
         rank
       }
     }
   `,
   
-  // Get practice leaderboard
-  getPracticeLeaderboard: `
-    query GetPracticeLeaderboard($difficulty: Difficulty, $limit: Int) {
-      practiceLeaderboard(difficulty: $difficulty, limit: $limit) {
-        owner
+  // Get player's rank in a tournament
+  getPlayerRank: `
+    query GetPlayerRank($tournamentId: Int!, $owner: String!) {
+      playerRank(tournamentId: $tournamentId, owner: $owner)
+    }
+  `,
+  
+  // ===== PLAYER QUERIES =====
+  
+  // Get player by wallet address
+  getPlayer: `
+    query GetPlayer($owner: String!) {
+      player(owner: $owner) {
+        walletAddress
         username
-        bestTime
-        bestLevel
-        gamesPlayed
-        rank
+        totalXp
+        totalRuns
+        tournamentsPlayed
+        registeredAt
       }
     }
   `,
   
-  // Get player's runs
-  getPlayerRuns: `
-    query GetPlayerRuns($owner: String!, $limit: Int) {
-      playerRuns(owner: $owner, limit: $limit) {
+  // Get player by username
+  getPlayerByUsername: `
+    query GetPlayerByUsername($username: String!) {
+      playerByUsername(username: $username) {
+        walletAddress
+        username
+        totalXp
+        totalRuns
+        tournamentsPlayed
+        registeredAt
+      }
+    }
+  `,
+  
+  // Check if player is registered
+  isRegistered: `
+    query IsRegistered($owner: String!) {
+      isRegistered(owner: $owner)
+    }
+  `,
+  
+  // Get player's tournament stats
+  getTournamentPlayer: `
+    query GetTournamentPlayer($tournamentId: Int!, $owner: String!) {
+      tournamentPlayer(tournamentId: $tournamentId, owner: $owner) {
+        walletAddress
+        bestTimeMs
+        totalRuns
+        totalXpEarned
+        firstPlayedAt
+        lastPlayedAt
+      }
+    }
+  `,
+  
+  // ===== RUN QUERIES =====
+  
+  // Get recent runs (activity feed)
+  getRecentRuns: `
+    query GetRecentRuns($limit: Int) {
+      recentRuns(limit: $limit) {
         id
-        owner
-        mode
+        walletAddress
+        username
         tournamentId
-        difficulty
-        levelReached
         timeMs
+        score
+        coins
         deaths
         completed
         xpEarned
@@ -134,6 +189,54 @@ export const LINERA_QUERIES = {
     }
   `,
   
+  // Get single run by ID
+  getRun: `
+    query GetRun($id: Int!) {
+      run(id: $id) {
+        id
+        walletAddress
+        username
+        tournamentId
+        timeMs
+        score
+        coins
+        deaths
+        completed
+        xpEarned
+        timestamp
+      }
+    }
+  `,
+  
+  // ===== REWARD QUERIES =====
+  
+  // Get player's reward for a tournament
+  getReward: `
+    query GetReward($tournamentId: Int!, $owner: String!) {
+      reward(tournamentId: $tournamentId, owner: $owner) {
+        tournamentId
+        walletAddress
+        rank
+        xpAmount
+        claimed
+      }
+    }
+  `,
+  
+  // Get all rewards for a player
+  getPlayerRewards: `
+    query GetPlayerRewards($owner: String!) {
+      playerRewards(owner: $owner) {
+        tournamentId
+        rank
+        xpAmount
+        claimed
+      }
+    }
+  `,
+  
+  // ===== STATS =====
+  
   // Get platform stats
   getStats: `
     query GetStats {
@@ -141,90 +244,97 @@ export const LINERA_QUERIES = {
         totalPlayers
         totalTournaments
         totalRuns
-        activeTournaments
+        activeTournamentId
       }
     }
   `,
 };
 
 // ============================================
-// GRAPHQL MUTATIONS
+// GRAPHQL MUTATIONS - Tournament First
 // ============================================
 
 export const LINERA_MUTATIONS = {
+  // ===== PLAYER OPERATIONS =====
+  
   // Register a new player
+  // walletAddress: [u8; 20] as array of integers
   registerPlayer: `
-    mutation RegisterPlayer($username: String!, $discordTag: String) {
-      registerPlayer(username: $username, discordTag: $discordTag)
+    mutation RegisterPlayer($walletAddress: [Int!]!, $username: String!) {
+      registerPlayer(walletAddress: $walletAddress, username: $username)
     }
   `,
   
-  // Update player profile
-  updateProfile: `
-    mutation UpdateProfile($username: String, $discordTag: String) {
-      updateProfile(username: $username, discordTag: $discordTag)
-    }
-  `,
+  // ===== GAME RUN OPERATIONS =====
   
-  // Create a tournament
-  createTournament: `
-    mutation CreateTournament(
-      $title: String!
-      $description: String!
-      $difficulty: Difficulty!
-      $mazeSeed: String!
-      $startTime: Int!
-      $endTime: Int!
-      $maxAttemptsPerPlayer: Int
-      $xpRewardPool: Int!
-    ) {
-      createTournament(
-        title: $title
-        description: $description
-        difficulty: $difficulty
-        mazeSeed: $mazeSeed
-        startTime: $startTime
-        endTime: $endTime
-        maxAttemptsPerPlayer: $maxAttemptsPerPlayer
-        xpRewardPool: $xpRewardPool
-      )
-    }
-  `,
-  
-  // Join a tournament
-  joinTournament: `
-    mutation JoinTournament($tournamentId: Int!) {
-      joinTournament(tournamentId: $tournamentId)
-    }
-  `,
-  
-  // Submit a game run
+  // Submit a game run to the active tournament
+  // This is the MAIN operation - auto-registers player if needed
   submitRun: `
     mutation SubmitRun(
-      $mode: GameMode!
-      $tournamentId: Int
-      $difficulty: Difficulty!
-      $levelReached: Int!
+      $tournamentId: Int!
       $timeMs: Int!
+      $score: Int!
+      $coins: Int!
       $deaths: Int!
       $completed: Boolean!
     ) {
       submitRun(
-        mode: $mode
         tournamentId: $tournamentId
-        difficulty: $difficulty
-        levelReached: $levelReached
         timeMs: $timeMs
+        score: $score
+        coins: $coins
         deaths: $deaths
         completed: $completed
       )
     }
   `,
   
+  // ===== TOURNAMENT ADMIN OPERATIONS =====
+  
+  // Create a new tournament (admin only)
+  createTournament: `
+    mutation CreateTournament(
+      $title: String!
+      $description: String!
+      $mazeSeed: String!
+      $difficulty: Difficulty!
+      $durationDays: Int!
+      $xpRewardPool: Int!
+    ) {
+      createTournament(
+        title: $title
+        description: $description
+        mazeSeed: $mazeSeed
+        difficulty: $difficulty
+        durationDays: $durationDays
+        xpRewardPool: $xpRewardPool
+      )
+    }
+  `,
+  
+  // End a tournament (admin only)
+  endTournament: `
+    mutation EndTournament($tournamentId: Int!) {
+      endTournament(tournamentId: $tournamentId)
+    }
+  `,
+  
+  // ===== REWARD OPERATIONS =====
+  
   // Claim tournament reward
-  claimTournamentReward: `
-    mutation ClaimTournamentReward($tournamentId: Int!) {
-      claimTournamentReward(tournamentId: $tournamentId)
+  claimReward: `
+    mutation ClaimReward($tournamentId: Int!) {
+      claimReward(tournamentId: $tournamentId)
+    }
+  `,
+  
+  // ===== BOOTSTRAP OPERATION =====
+  
+  // Bootstrap tournament #1 if it doesn't exist
+  // Safe to call multiple times - idempotent
+  bootstrapTournament: `
+    mutation BootstrapTournament {
+      bootstrapTournament
     }
   `,
 };

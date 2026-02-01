@@ -708,6 +708,12 @@
         function gameLoop() {
             switch (gameState) {
                 case 'initialize':
+                    // Use level-specific seed for deterministic maze generation
+                    var levelSeed = getLevelSeed(currentLevel);
+                    if (levelSeed) {
+                        setMazeSeed(levelSeed);
+                    }
+                    
                     maze = generateSquareMaze(mazeDimension);
                     maze[mazeDimension - 1][mazeDimension - 2] = false;
                     createPhysicsWorld();
@@ -737,13 +743,15 @@
                         maxCombo = 0;
                     }
 
-                    // Notify parent
+                    // Notify parent with session info
                     if (window.parent !== window) {
                         window.parent.postMessage({
                             type: 'levelStart',
                             level: currentLevel,
                             time: startTime ? Date.now() - startTime : 0,
-                            score: score
+                            score: score,
+                            sessionId: currentSessionId,
+                            mazeSeed: getMazeSeed()
                         }, '*');
                     }
 
@@ -790,7 +798,7 @@
                         var comboBonus = maxCombo * 100;
                         score += Math.floor(timeBonus + levelBonus + comboBonus);
                         
-                        // Notify parent
+                        // Notify parent with session info
                         if (window.parent !== window) {
                             window.parent.postMessage({
                                 type: 'levelComplete',
@@ -803,7 +811,9 @@
                                 maxCombo: maxCombo,
                                 levelCoins: levelCoins,
                                 levelGems: levelGems,
-                                levelStars: levelStars
+                                levelStars: levelStars,
+                                sessionId: currentSessionId,
+                                mazeSeed: getMazeSeed()
                             }, '*');
                         }
 
@@ -842,6 +852,71 @@
             }
 
             requestAnimationFrame(gameLoop);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // SESSION & SEED MANAGEMENT (Linera Integration)
+        // ═══════════════════════════════════════════════════════════════
+        
+        var currentSessionId = null;
+        var sessionMazeSeed = null;
+        var sessionStartTime = null;
+        var levelSeeds = {}; // Cache seeds per level for deterministic regeneration
+
+        // Listen for messages from parent (React app)
+        window.addEventListener('message', function(event) {
+            var data = event.data;
+            if (!data || !data.type) return;
+            
+            switch (data.type) {
+                case 'setSession':
+                    // Parent sends session info before game starts
+                    currentSessionId = data.sessionId;
+                    sessionMazeSeed = data.mazeSeed;
+                    sessionStartTime = Date.now();
+                    console.log('🎮 Session received:', currentSessionId, 'Seed:', sessionMazeSeed);
+                    
+                    // Set the seed for maze generation
+                    if (sessionMazeSeed) {
+                        setMazeSeed(sessionMazeSeed);
+                    }
+                    break;
+                    
+                case 'setSeed':
+                    // Set maze seed without session (practice mode)
+                    sessionMazeSeed = data.seed;
+                    if (sessionMazeSeed) {
+                        setMazeSeed(sessionMazeSeed);
+                    }
+                    console.log('🌱 Seed set:', sessionMazeSeed);
+                    break;
+                    
+                case 'restart':
+                    // Restart game with same session/seed
+                    mazeDimension = 11;
+                    currentLevel = 1;
+                    score = 0;
+                    coinsCollected = 0;
+                    gemsCollected = 0;
+                    starsCollected = 0;
+                    maxCombo = 0;
+                    startTime = Date.now();
+                    
+                    // Reset seed RNG for deterministic replay
+                    if (sessionMazeSeed) {
+                        setMazeSeed(sessionMazeSeed);
+                    }
+                    
+                    gameState = 'initialize';
+                    break;
+            }
+        });
+
+        // Generate level-specific seed (deterministic from base seed + level)
+        function getLevelSeed(level) {
+            if (!sessionMazeSeed) return null;
+            var levelSeed = sessionMazeSeed + '-L' + level;
+            return levelSeed;
         }
 
         // ═══════════════════════════════════════════════════════════════

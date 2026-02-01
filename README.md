@@ -85,7 +85,7 @@ await app.mutate("movePlayer", { direction: "north" });
 |----------|-------|
 | **Network** | Conway Testnet |
 | **Chain ID** | `5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36` |
-| **Application ID** | `14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a` |
+| **Application ID** | `e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1` |
 | **Faucet URL** | `https://faucet.testnet-conway.linera.net` |
 
 ## 🚀 Local Development
@@ -116,8 +116,8 @@ pnpm install
 ```env
 # Linera Configuration - Conway Testnet
 VITE_LINERA_FAUCET_URL=https://faucet.testnet-conway.linera.net
-VITE_LINERA_APP_ID=14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a
-VITE_APPLICATION_ID=14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a
+VITE_LINERA_APP_ID=e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1
+VITE_APPLICATION_ID=e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1
 
 # Dynamic.xyz Wallet Integration
 VITE_DYNAMIC_ENVIRONMENT_ID=38eabbc2-00d5-4d3b-8cc1-1167ad367914
@@ -139,7 +139,7 @@ JWT_SECRET=your-super-secret-jwt-key-change-in-production
 # Linera Configuration
 LINERA_FAUCET_URL=https://faucet.testnet-conway.linera.net
 LINERA_CHAIN_ID=5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36
-APPLICATION_ID=14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a
+APPLICATION_ID=e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1
 ```
 
 ### Step 3: Start Development Servers
@@ -191,8 +191,8 @@ pnpm dev
    | Variable | Value |
    |----------|-------|
    | `VITE_LINERA_FAUCET_URL` | `https://faucet.testnet-conway.linera.net` |
-   | `VITE_LINERA_APP_ID` | `14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a` |
-   | `VITE_APPLICATION_ID` | `14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a` |
+   | `VITE_LINERA_APP_ID` | `e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1` |
+   | `VITE_APPLICATION_ID` | `e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1` |
    | `VITE_DYNAMIC_ENVIRONMENT_ID` | `38eabbc2-00d5-4d3b-8cc1-1167ad367914` |
    | `VITE_API_URL` | `https://your-backend.onrender.com` |
    | `VITE_WS_URL` | `wss://your-backend.onrender.com` |
@@ -217,7 +217,7 @@ pnpm dev
    | `JWT_SECRET` | (generate a secure random string) |
    | `LINERA_FAUCET_URL` | `https://faucet.testnet-conway.linera.net` |
    | `LINERA_CHAIN_ID` | `5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36` |
-   | `APPLICATION_ID` | `14252ed65b362813ef5dc339f76f9db7a2cb775f61b8e78aed28f9e75407606a` |
+   | `APPLICATION_ID` | `e43d3e60e212fb389f365cdfde99245713d53e2be5f5b807ed08b69813de46b1` |
 
 3. **Update Vercel Frontend:**
    - After Render deploys, copy the backend URL (e.g., `https://labyrinth-legends.onrender.com`)

@@ -88,8 +88,8 @@ export function useLineraWallet() {
           ...prev,
           player: {
             username: player.username,
-            xp: player.xp,
-            gamesPlayed: player.gamesPlayed,
+            xp: player.totalXp,
+            gamesPlayed: player.totalRuns,
             isRegistered: true,
           },
         }));
@@ -169,24 +169,23 @@ export function useLineraWallet() {
   }, [primaryWallet]);
 
   // Register player on blockchain
-  const registerPlayer = useCallback(async (username: string, discordTag?: string) => {
+  const registerPlayer = useCallback(async (username: string) => {
     if (!state.address) {
       throw new Error('No wallet connected');
     }
 
-    await lineraClient.registerPlayer(username, discordTag);
+    await lineraClient.registerPlayer(state.address, username);
     
     // Refresh player data
     await fetchPlayerData(state.address);
   }, [state.address, fetchPlayerData]);
 
-  // Submit game run to blockchain
+  // Submit game run to blockchain (tournament-first)
   const submitRun = useCallback(async (params: {
-    mode: string;
-    tournamentId?: number;
-    difficulty: string;
-    levelReached: number;
+    tournamentId: number;
     timeMs: number;
+    score: number;
+    coins: number;
     deaths: number;
     completed: boolean;
   }) => {

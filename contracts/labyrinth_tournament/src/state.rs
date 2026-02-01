@@ -1,52 +1,53 @@
-//! Labyrinth Legends - On-chain State Management
-//! Uses Linera views for persistent storage
+//! Labyrinth Legends - Simplified Tournament State
+//! Optimized for tournament-first architecture
 
 use linera_sdk::views::{linera_views, MapView, RegisterView, RootView, ViewStorageContext};
-use linera_sdk::linera_base_types::AccountOwner;
-use crate::{
-    Tournament, Player, GameRun, LeaderboardEntry, 
-    TournamentParticipant, TournamentReward
+use labyrinth_tournament::{
+    Tournament, Player, GameRun, TournamentPlayer, LeaderboardEntry, TournamentReward
 };
 
-/// Main application state stored on-chain
+/// Main application state - tournament-focused
 #[derive(RootView)]
 #[view(context = ViewStorageContext)]
 pub struct LabyrinthState {
     // ===== ID Counters =====
-    /// Next tournament ID to assign
+    /// Next tournament ID
     pub next_tournament_id: RegisterView<u64>,
-    /// Next run ID to assign
+    /// Next run ID
     pub next_run_id: RegisterView<u64>,
 
-    // ===== Core Data =====
+    // ===== Identity =====
+    /// Maps auto-signer -> wallet address (for identity binding)
+    pub signer_to_wallet: MapView<linera_sdk::linera_base_types::AccountOwner, [u8; 20]>,
+
+    // ===== Tournaments =====
     /// All tournaments by ID
     pub tournaments: MapView<u64, Tournament>,
-    /// All registered players by owner
-    pub players: MapView<AccountOwner, Player>,
+    /// Active tournament ID (only one active at a time for simplicity)
+    pub active_tournament_id: RegisterView<Option<u64>>,
+
+    // ===== Players =====
+    /// Global player profiles by wallet address
+    pub players: MapView<[u8; 20], Player>,
+    /// Username -> wallet mapping (for lookup)
+    pub username_to_wallet: MapView<String, [u8; 20]>,
+
+    // ===== Tournament Players =====
+    /// Tournament participants: (tournament_id, wallet) -> TournamentPlayer
+    pub tournament_players: MapView<(u64, [u8; 20]), TournamentPlayer>,
+
+    // ===== Leaderboards =====
+    /// Tournament leaderboards: tournament_id -> Vec<LeaderboardEntry>
+    /// Sorted by best_time_ms ascending (lower = better)
+    pub leaderboards: MapView<u64, Vec<LeaderboardEntry>>,
+
+    // ===== Runs =====
     /// All game runs by ID
     pub runs: MapView<u64, GameRun>,
+    /// Recent run IDs (last 100 for activity feed)
+    pub recent_runs: RegisterView<Vec<u64>>,
 
-    // ===== Tournament Data =====
-    /// Tournament participants: (tournament_id, owner) -> TournamentParticipant
-    pub tournament_participants: MapView<(u64, AccountOwner), TournamentParticipant>,
-    /// Tournament leaderboards: tournament_id -> Vec<LeaderboardEntry>
-    pub tournament_leaderboards: MapView<u64, Vec<LeaderboardEntry>>,
-    /// Tournament rewards: (tournament_id, owner) -> TournamentReward
-    pub tournament_rewards: MapView<(u64, AccountOwner), TournamentReward>,
-
-    // ===== Global Leaderboard =====
-    /// Practice mode global leaderboard (top 100)
-    pub practice_leaderboard: RegisterView<Vec<LeaderboardEntry>>,
-    /// Practice mode leaderboard by difficulty
-    pub practice_leaderboard_by_difficulty: MapView<String, Vec<LeaderboardEntry>>,
-
-    // ===== Activity Feed =====
-    /// Recent runs (stores last 100 run IDs for activity feed)
-    pub recent_run_ids: RegisterView<Vec<u64>>,
-
-    // ===== Lookup Maps =====
-    /// Username to owner mapping for Discord lookup
-    pub username_to_owner: MapView<String, AccountOwner>,
-    /// Player runs: owner -> Vec<run_id>
-    pub player_runs: MapView<AccountOwner, Vec<u64>>,
+    // ===== Rewards =====
+    /// Tournament rewards: (tournament_id, wallet) -> TournamentReward
+    pub rewards: MapView<(u64, [u8; 20]), TournamentReward>,
 }
