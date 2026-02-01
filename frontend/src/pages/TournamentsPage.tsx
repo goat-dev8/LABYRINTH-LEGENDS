@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Clock, Users, Sparkles, Target, Award, Flame, Star, Loader2 } from 'lucide-react';
+import { Trophy, Clock, Users, Sparkles, Target, Award, Flame, Star } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { lineraAdapter } from '../lib/linera';
 import { useLineraConnection } from '../hooks';
-import { LINERA_QUERIES, LINERA_MUTATIONS } from '../lib/chain/config';
+import { LINERA_QUERIES } from '../lib/chain/config';
 
 // API URL for backend fallback
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -61,11 +61,6 @@ function useCountdown(endTime: number) {
   return timeLeft;
 }
 
-// Convert wallet bytes to hex string
-function bytesToHex(bytes: number[]): string {
-  return '0x' + bytes.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 // Format time in ms to display string
 function formatTime(ms: number): string {
   if (!ms || ms === 0) return '--:--';
@@ -83,8 +78,8 @@ export default function TournamentsPage() {
   const { isAppConnected } = useLineraConnection();
   const [tournament, setTournament] = useState<BlockchainTournament | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [_loading, setLoading] = useState(true);
+  const [_error, setError] = useState<string | null>(null);
 
   // Fetch tournament data: blockchain first (always returns data), backend fallback
   useEffect(() => {
