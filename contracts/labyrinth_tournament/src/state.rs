@@ -10,6 +10,10 @@ use labyrinth_tournament::{
 #[derive(RootView)]
 #[view(context = ViewStorageContext)]
 pub struct LabyrinthState {
+    // ===== Hub Chain Config =====
+    /// The hub chain ID where all tournament state is authoritative
+    pub hub_chain_id: RegisterView<Option<String>>,
+
     // ===== ID Counters =====
     /// Next tournament ID
     pub next_tournament_id: RegisterView<u64>,
@@ -21,10 +25,13 @@ pub struct LabyrinthState {
     pub signer_to_wallet: MapView<linera_sdk::linera_base_types::AccountOwner, [u8; 20]>,
 
     // ===== Tournaments =====
-    /// All tournaments by ID
+    /// All tournaments by ID (for historical lookup)
     pub tournaments: MapView<u64, Tournament>,
     /// Active tournament ID (only one active at a time for simplicity)
     pub active_tournament_id: RegisterView<Option<u64>>,
+    /// DIRECT ACCESS: The currently active tournament stored in a RegisterView
+    /// This allows direct mutation without MapView clone issues
+    pub active_tournament: RegisterView<Option<Tournament>>,
 
     // ===== Players =====
     /// Global player profiles by wallet address

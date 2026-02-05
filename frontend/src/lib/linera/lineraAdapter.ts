@@ -90,8 +90,11 @@ export interface LineraConnection {
  * Application connection state
  */
 export interface ApplicationConnection {
-  application: Application;
+  application: Application;           // For QUERIES - connected to hub chain
+  userApplication: Application;       // For MUTATIONS - connected to user's chain
   applicationId: string;
+  hubChain: any;                       // Hub chain client for processing inbox
+  hubChainId: string;                  // Hub chain ID
 }
 
 /**
@@ -291,25 +294,50 @@ class LineraAdapterClass {
     try {
       console.log(`🎮 Connecting to application: ${applicationId.slice(0, 16)}...`);
       
-      // CRITICAL: Use HUB_CHAIN_ID for application queries!
-      // The application state (tournaments, runs, etc.) lives on the hub chain,
-      // not on the user's personal chain.
+      // =========================================================================
+      // CRITICAL: TWO APPLICATION CONNECTIONS NEEDED
+      // 
+      // 1. HUB CHAIN application - for QUERIES (reading tournament state)
+      //    The authoritative state lives on the hub chain.
+      // 
+      // 2. USER CHAIN application - for MUTATIONS (submitting runs)
+      //    Users can only propose blocks on their own chain.
+      //    Mutations are scheduled as operations on the user's chain,
+      //    which then send cross-chain messages to the hub.
+      // =========================================================================
+      
       const hubChainId = HUB_CHAIN_ID || this.connection.chainId;
-      console.log(`⛓️ Using hub chain for application state: ${hubChainId.slice(0, 16)}...`);
+      const userChainId = this.connection.chainId;
       
-      // Get hub chain instance and then application
-      const chain = await this.connection.client.chain(hubChainId);
-      const application = await chain.application(applicationId);
+      console.log(`⛓️ Hub chain (queries): ${hubChainId.slice(0, 16)}...`);
+      console.log(`⛓️ User chain (mutations): ${userChainId.slice(0, 16)}...`);
       
-      // Set up notifications for real-time updates
-      this.setupChainNotifications(chain);
+      // Connect to hub chain application for QUERIES
+      const hubChain = await this.connection.client.chain(hubChainId);
+      const hubApplication = await hubChain.application(applicationId);
+      
+      // Connect to user chain application for MUTATIONS
+      // This allows the user to propose blocks with operations
+      const userChain = await this.connection.client.chain(userChainId);
+      const userApplication = await userChain.application(applicationId);
+      
+      // Set up notifications on hub chain for state updates
+      this.setupChainNotifications(hubChain);
+      
+      // Also listen to user chain for transaction confirmations
+      this.setupChainNotifications(userChain);
       
       this.appConnection = {
-        application,
+        application: hubApplication,      // For queries
+        userApplication: userApplication, // For mutations
         applicationId,
+        hubChain,                          // Store for processing inbox
+        hubChainId,                        // Store hub chain ID
       };
       
       console.log('✅ Connected to Labyrinth Legends application!');
+      console.log('   Queries → Hub chain');
+      console.log('   Mutations → User chain → Cross-chain message → Hub');
       this.notifyListeners();
       return this.appConnection;
     } catch (error) {
@@ -362,10 +390,16 @@ class LineraAdapterClass {
 
   /**
    * Execute a GraphQL mutation against the application.
-   * This triggers a blockchain transaction that requires wallet signing.
    * 
-   * In Linera, mutations use the same interface as queries - 
-   * the client handles distinguishing based on GraphQL operation type.
+   * CRITICAL: Mutations MUST go through the USER's chain application,
+   * NOT the hub chain. The user can only propose blocks on their own chain.
+   * 
+   * Flow:
+   * 1. Mutation → User chain's application service
+   * 2. Service calls schedule_operation()
+   * 3. Operation is included in user's next block
+   * 4. Contract's execute_operation() sends Message to hub chain
+   * 5. Hub chain's execute_message() updates state
    * 
    * @param graphqlMutation - GraphQL mutation string
    * @param variables - Optional variables for the mutation
@@ -375,9 +409,84 @@ class LineraAdapterClass {
     graphqlMutation: string,
     variables?: Record<string, unknown>
   ): Promise<T> {
-    // Mutations use the same interface as queries in Linera
-    // The client handles distinguishing based on GraphQL operation type
-    return this.query<T>(graphqlMutation, variables);
+    if (!this.appConnection) {
+      throw new Error('Must connect to application before mutating');
+    }
+
+    const payload = variables
+      ? { query: graphqlMutation, variables }
+      : { query: graphqlMutation };
+
+    try {
+      console.log('📤 Sending mutation to user chain...');
+      
+      // CRITICAL: Use userApplication (user's chain) for mutations!
+      // This allows the user to propose blocks with operations.
+      const result = await this.appConnection.userApplication.query(
+        JSON.stringify(payload)
+      );
+      
+      const parsed = JSON.parse(result);
+      
+      if (parsed.errors && parsed.errors.length > 0) {
+        throw new Error(parsed.errors[0].message || 'GraphQL error');
+      }
+      
+      console.log('✅ Mutation sent to user chain, pending cross-chain message...');
+      return parsed.data as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('❌ Mutation failed:', message);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a GraphQL mutation directly on the HUB chain application.
+   * 
+   * USE THIS FOR: Operations that modify hub state directly WITHOUT cross-chain messaging.
+   * Examples: bootstrapTournament, createTournament, endTournament
+   * 
+   * DO NOT USE FOR: Operations that need user authentication (submitRun, claimReward)
+   * Those must go through mutate() → user chain → cross-chain message → hub
+   * 
+   * @param graphqlMutation - GraphQL mutation string
+   * @param variables - Optional variables for the mutation
+   * @returns Parsed JSON response
+   */
+  async mutateHub<T = unknown>(
+    graphqlMutation: string,
+    variables?: Record<string, unknown>
+  ): Promise<T> {
+    if (!this.appConnection) {
+      throw new Error('Must connect to application before mutating');
+    }
+
+    const payload = variables
+      ? { query: graphqlMutation, variables }
+      : { query: graphqlMutation };
+
+    try {
+      console.log('📤 Sending mutation directly to hub chain...');
+      
+      // Use hub application for direct state mutations
+      const result = await this.appConnection.application.query(
+        JSON.stringify(payload)
+      );
+      
+      const parsed = JSON.parse(result);
+      
+      if (parsed.errors && parsed.errors.length > 0) {
+        throw new Error(parsed.errors[0].message || 'GraphQL error');
+      }
+      
+      console.log('✅ Hub mutation executed successfully');
+      return parsed.data as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('❌ Hub mutation failed:', message);
+      throw error;
+    }
   }
 
   // ===========================================================================

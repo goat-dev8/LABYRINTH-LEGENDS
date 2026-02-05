@@ -8,6 +8,10 @@
 import { spawn } from 'child_process';
 import { promisify } from 'util';
 import { exec } from 'child_process';
+import dotenv from 'dotenv';
+
+// Load env vars first before reading config
+dotenv.config();
 
 const execAsync = promisify(exec);
 
@@ -19,7 +23,7 @@ const LINERA_CONFIG = {
   graphqlEndpoint: process.env.LINERA_GRAPHQL_ENDPOINT || 'https://linera-graphql-eu.staketab.org',
   faucetUrl: process.env.LINERA_FAUCET_URL || 'https://faucet.testnet-conway.linera.net',
   chainId: process.env.LINERA_CHAIN_ID || '5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36',
-  appId: process.env.LINERA_APP_ID || '6421a8cb15976821a7d70465f07a3875da38ba33c3da6027e79a3af9e154c876',
+  appId: process.env.LINERA_APP_ID || '9a1ba97cddb936258184f73b5d8776993af385cb0bdda5a4280faa536fa10999',
   walletPath: process.env.LINERA_WALLET_PATH || `${process.env.HOME}/.config/linera/wallet.json`,
   keystorePath: process.env.LINERA_KEYSTORE_PATH || `${process.env.HOME}/.config/linera`,
   ownerAddress: process.env.LINERA_OWNER_ADDRESS || '',
@@ -369,6 +373,65 @@ class LineraService {
     } catch (error) {
       throw new Error(`Failed to get balance: ${error}`);
     }
+  }
+
+  // ============================================
+  // HUB CHAIN INBOX PROCESSING
+  // ============================================
+  
+  /**
+   * Process the hub chain's inbox to execute cross-chain messages.
+   * This is crucial for updating tournament state when users submit runs
+   * from their own chains.
+   * 
+   * ARCHITECTURE:
+   * 1. User submits run on their chain (mutation)
+   * 2. User's chain sends cross-chain message to hub chain
+   * 3. This function processes those messages on the hub chain
+   * 4. Hub chain state (participantCount, totalRuns) gets updated
+   */
+  async processHubInbox(): Promise<{ success: boolean; blocksCreated: number; error?: string }> {
+    if (!this.enabled) {
+      return { success: false, blocksCreated: 0, error: 'Linera service is not enabled' };
+    }
+
+    try {
+      console.log('📬 Processing hub chain inbox...');
+      const hubChainId = LINERA_CONFIG.chainId;
+      const output = await lineraCommand(['process-inbox', hubChainId]);
+      
+      // Parse output to get block count (output format: "Processed incoming messages with X blocks")
+      const match = output.match(/(\d+)\s+blocks?/);
+      const blocksCreated = match ? parseInt(match[1], 10) : 0;
+      
+      console.log(`✅ Hub chain inbox processed: ${blocksCreated} blocks created`);
+      return { success: true, blocksCreated };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`❌ Failed to process hub chain inbox: ${errorMsg}`);
+      return { success: false, blocksCreated: 0, error: errorMsg };
+    }
+  }
+
+  /**
+   * Start periodic hub chain inbox processing
+   * Runs every N seconds to ensure cross-chain messages are processed
+   */
+  startPeriodicInboxProcessing(intervalMs: number = 10000): NodeJS.Timer | null {
+    if (!this.enabled) {
+      console.log('⏸️ Periodic inbox processing disabled (Linera not enabled)');
+      return null;
+    }
+
+    console.log(`🔄 Starting periodic hub chain inbox processing every ${intervalMs / 1000}s`);
+    
+    // Process immediately on start
+    this.processHubInbox();
+    
+    // Then process periodically
+    return setInterval(() => {
+      this.processHubInbox();
+    }, intervalMs);
   }
 }
 

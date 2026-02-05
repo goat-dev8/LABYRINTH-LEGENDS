@@ -19,7 +19,7 @@ export const LINERA_CONFIG = {
   chainId: import.meta.env.VITE_LINERA_CHAIN_ID || '5c2c15690694204e8bf3659c87990d2d44c61f857b304b5755d5debb6fc24b36',
   
   // Deployed Application ID
-  appId: import.meta.env.VITE_LINERA_APP_ID || '6421a8cb15976821a7d70465f07a3875da38ba33c3da6027e79a3af9e154c876',
+  appId: import.meta.env.VITE_LINERA_APP_ID || 'b277f96b4ad009b8553f309a10d6d9babba220b192bea2fdbc18484b107770b8',
   
   // Full application endpoint
   get appEndpoint() {

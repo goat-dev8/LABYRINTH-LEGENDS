@@ -4,7 +4,7 @@ import { Trophy, Clock, Users, Sparkles, Target, Award, Flame, Star } from 'luci
 import { Link } from 'react-router-dom';
 import { lineraAdapter } from '../lib/linera';
 import { useLineraConnection } from '../hooks';
-import { LINERA_QUERIES } from '../lib/chain/config';
+import { LINERA_QUERIES, LINERA_MUTATIONS } from '../lib/chain/config';
 
 // API URL for backend fallback
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -81,6 +81,46 @@ export default function TournamentsPage() {
   const [_loading, setLoading] = useState(true);
   const [_error, setError] = useState<string | null>(null);
 
+  // Refetch tournament data (reusable function)
+  const refetchTournamentData = async () => {
+    if (!isAppConnected) return;
+    
+    try {
+      const tournamentResult = await lineraAdapter.query<{ activeTournament: BlockchainTournament | null }>(
+        LINERA_QUERIES.getActiveTournament
+      );
+      
+      if (tournamentResult.activeTournament) {
+        const t = tournamentResult.activeTournament;
+        setTournament(t);
+        console.log(`🔄 Tournament refreshed: ${t.participantCount} participants, ${t.totalRuns} runs`);
+
+        // Refresh leaderboard too
+        const leaderboardResult = await lineraAdapter.query<{ leaderboard: LeaderboardEntry[] }>(
+          LINERA_QUERIES.getLeaderboard,
+          { tournamentId: t.id, limit: 10 }
+        );
+        if (leaderboardResult.leaderboard) {
+          setLeaderboard(leaderboardResult.leaderboard);
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to refetch tournament:', error);
+    }
+  };
+
+  // Subscribe to block notifications for auto-refetch
+  useEffect(() => {
+    if (!isAppConnected) return;
+    
+    const unsubscribe = lineraAdapter.subscribe(() => {
+      console.log('🔔 Block notification - refetching tournament...');
+      refetchTournamentData();
+    });
+    
+    return () => unsubscribe();
+  }, [isAppConnected]);
+
   // Fetch tournament data: blockchain first (always returns data), backend fallback
   useEffect(() => {
     async function fetchTournamentData() {
@@ -89,11 +129,10 @@ export default function TournamentsPage() {
 
       try {
         // PRIMARY: Try blockchain if connected
-        // The service.rs now returns FIXED tournament data even if state is empty
         if (isAppConnected) {
           console.log('📡 Fetching tournament from blockchain...');
           
-          // Get active tournament (service returns fixed data if none exists)
+          // Get active tournament
           const tournamentResult = await lineraAdapter.query<{ activeTournament: BlockchainTournament | null }>(
             LINERA_QUERIES.getActiveTournament
           );
@@ -118,11 +157,27 @@ export default function TournamentsPage() {
             
             setLoading(false);
             return;
+          } else {
+            // No tournament exists on-chain - bootstrap it
+            console.log('⚠️ No tournament on-chain, bootstrapping...');
+            try {
+              // Bootstrap must go to hub chain directly (not cross-chain)
+              await lineraAdapter.mutateHub(LINERA_MUTATIONS.bootstrapTournament, {});
+              console.log('✅ Bootstrap mutation sent to hub, waiting for block notification...');
+              // Block notification system will auto-refetch
+              setLoading(false);
+              return;
+            } catch (bootstrapError) {
+              console.warn('Bootstrap failed:', bootstrapError);
+              // Stay in loading - don't fall back to backend when connected
+              setLoading(false);
+              return;
+            }
           }
         }
 
-        // FALLBACK: Use backend cache or default tournament
-        console.log('📡 Using backend/default tournament data...');
+        // FALLBACK: Use backend cache or default tournament ONLY when NOT connected
+        console.log('📡 Using backend/default tournament data (not connected to Linera)...');
         
         // Try backend first
         try {
@@ -154,7 +209,8 @@ export default function TournamentsPage() {
           console.warn('Backend fallback failed:', backendError);
         }
 
-        // FINAL FALLBACK: Default 15-day tournament
+        // FINAL FALLBACK: Default tournament data (if blockchain unavailable)
+        // NOTE: participantCount and totalRuns are 0 until blockchain updates
         const now = Date.now();
         setTournament({
           id: 1,
@@ -165,8 +221,8 @@ export default function TournamentsPage() {
           startTime: ((now - (2 * 24 * 60 * 60 * 1000)) * 1000).toString(),
           endTime: ((now + (13 * 24 * 60 * 60 * 1000)) * 1000).toString(),
           status: "Active",
-          participantCount: 3,
-          totalRuns: 26,
+          participantCount: 0,  // Real value comes from blockchain
+          totalRuns: 0,         // Real value comes from blockchain
           xpRewardPool: 10000,
         });
 

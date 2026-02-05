@@ -32,6 +32,7 @@ import { verifyMessage } from 'ethers';
 import { v4 as uuidv4 } from 'uuid';
 
 import { db, calculateXP } from './db/memory.js';
+import { lineraService } from './services/linera.js';
 import type {
   Player,
   Tournament,
@@ -215,6 +216,16 @@ app.post('/api/admin/rebuild-leaderboard', (req, res) => {
     playerCount: leaderboard.length,
     leaderboard 
   }));
+});
+
+// Process hub chain inbox (for executing cross-chain messages)
+app.post('/api/admin/process-inbox', async (req, res) => {
+  try {
+    const result = await lineraService.processHubInbox();
+    res.json(response(result));
+  } catch (error) {
+    res.status(500).json(errorResponse(error instanceof Error ? error.message : 'Unknown error'));
+  }
 });
 
 // ===== Player Routes =====
@@ -979,6 +990,10 @@ httpServer.listen(PORT, () => {
 
   // Run initial tournament status update
   updateTournamentStatuses();
+  
+  // Start periodic hub chain inbox processing (every 10 seconds)
+  // This ensures cross-chain messages from user chains are executed on the hub chain
+  lineraService.startPeriodicInboxProcessing(10000);
 });
 
 export { app, io, httpServer };

@@ -164,6 +164,28 @@ impl Difficulty {
 }
 
 // ============================================
+// CROSS-CHAIN MESSAGES
+// ============================================
+
+/// Messages sent between chains for state synchronization
+/// All tournament state updates go through the hub chain
+#[derive(Debug, Deserialize, Serialize)]
+pub enum Message {
+    /// Apply a run submission to hub chain state
+    /// Sent from user chain to hub chain
+    ApplyRun {
+        wallet_address: [u8; 20],
+        username: String,
+        tournament_id: u64,
+        time_ms: u64,
+        score: u64,
+        coins: u32,
+        deaths: u32,
+        completed: bool,
+    },
+}
+
+// ============================================
 // OPERATIONS (Mutations)
 // ============================================
 

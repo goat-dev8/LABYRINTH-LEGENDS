@@ -142,7 +142,7 @@ export default function AstrayPlayPage() {
   // TOURNAMENT STATE - The active tournament we're playing in
   // ═══════════════════════════════════════════════════════════════
   const [activeTournament, setActiveTournament] = useState<Tournament | null>(null);
-  const [loadingTournament, setLoadingTournament] = useState(false);
+  const [loadingTournament, setLoadingTournament] = useState(true); // Start as true to prevent premature play
   
   // Registration check ref - prevents duplicate checks
   const registrationCheckedRef = useRef<string | null>(null);
@@ -200,12 +200,89 @@ export default function AstrayPlayPage() {
 
   // ═══════════════════════════════════════════════════════════════
   // TOURNAMENT - Fetch from blockchain (source of truth)
-  // Fallback to default if not connected
+  // Only fallback to default if NOT connected to Linera
   // ═══════════════════════════════════════════════════════════════
+  
+  // Refetch tournament function (reusable)
+  const refetchTournament = async () => {
+    if (!isAppConnected) return;
+    
+    try {
+      const GET_ACTIVE_TOURNAMENT = `
+        query GetActiveTournament {
+          activeTournament {
+            id
+            title
+            description
+            mazeSeed
+            difficulty
+            startTime
+            endTime
+            status
+            participantCount
+            totalRuns
+            xpRewardPool
+          }
+        }
+      `;
+
+      const result = await lineraAdapter.query<{ 
+        activeTournament: {
+          id: number;
+          title: string;
+          description: string;
+          mazeSeed: string;
+          difficulty: string;
+          startTime: string;
+          endTime: string;
+          status: string;
+          participantCount: number;
+          totalRuns: number;
+          xpRewardPool: number;
+        } | null 
+      }>(GET_ACTIVE_TOURNAMENT);
+      
+      if (result.activeTournament) {
+        const t = result.activeTournament;
+        const tournament: Tournament = {
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          mazeSeed: t.mazeSeed,
+          difficulty: t.difficulty as Tournament['difficulty'],
+          startTime: parseInt(t.startTime) / 1000,
+          endTime: parseInt(t.endTime) / 1000,
+          status: t.status as Tournament['status'],
+          participantCount: t.participantCount,
+          totalRuns: t.totalRuns,
+          xpRewardPool: t.xpRewardPool,
+        };
+        setActiveTournament(tournament);
+        setLoadingTournament(false); // Clear loading state on successful refetch
+        console.log(`🔄 Tournament refreshed: ${tournament.participantCount} participants, ${tournament.totalRuns} runs`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to refetch tournament:', error);
+    }
+  };
+
+  // Subscribe to block notifications for auto-refetch
+  useEffect(() => {
+    if (!isAppConnected) return;
+    
+    const unsubscribe = lineraAdapter.subscribe(() => {
+      // New block received - refetch tournament state
+      console.log('🔔 Block notification - refetching tournament...');
+      refetchTournament();
+    });
+    
+    return () => unsubscribe();
+  }, [isAppConnected]);
+
   useEffect(() => {
     async function fetchActiveTournament() {
       if (!isAppConnected) {
-        // FALLBACK: Use default tournament when not connected
+        // FALLBACK: Use default tournament ONLY when not connected to Linera
         const now = Date.now();
         const defaultTournament: Tournament = {
           id: 1,
@@ -216,8 +293,8 @@ export default function AstrayPlayPage() {
           startTime: now - (2 * 24 * 60 * 60 * 1000),
           endTime: now + (13 * 24 * 60 * 60 * 1000),
           status: "Active",
-          participantCount: 3,
-          totalRuns: 26,
+          participantCount: 0,
+          totalRuns: 0,
           xpRewardPool: 10000,
         };
         setActiveTournament(defaultTournament);
@@ -286,38 +363,23 @@ export default function AstrayPlayPage() {
           setActiveTournament(tournament);
           console.log(`🏆 Tournament loaded from blockchain: ${tournament.title}`);
         } else {
-          // Service returned null - use default tournament
-          console.log('⚠️ activeTournament query returned null, using default...');
-          setActiveTournament({
-            id: 1,
-            title: "February 2026 Championship",
-            description: "15-day tournament - fastest time wins!",
-            mazeSeed: "labyrinth-feb-2026",
-            difficulty: "Medium",
-            status: "Active",
-            startTime: new Date('2026-02-01').getTime(),
-            endTime: new Date('2026-02-16').getTime(),
-            participantCount: 0,
-            totalRuns: 0,
-            xpRewardPool: 10000,
-          });
+          // Service returned null - tournament may not exist yet, try bootstrap
+          console.log('⚠️ No tournament on chain, attempting bootstrap...');
+          try {
+            // Bootstrap must go to hub chain directly (not cross-chain)
+            await lineraAdapter.mutateHub(LINERA_MUTATIONS.bootstrapTournament, {});
+            console.log('✅ Bootstrap mutation sent to hub, waiting for block...');
+            // Will refetch automatically when block notification arrives
+          } catch (bootstrapErr) {
+            console.warn('⚠️ Bootstrap failed:', bootstrapErr);
+          }
+          // Stay in loading state - block notification will trigger refetch
+          // Don't use default data when connected to Linera
         }
       } catch (error) {
         console.error('Failed to fetch tournament from blockchain:', error);
-        // Use default tournament as fallback
-        setActiveTournament({
-          id: 1,
-          title: "February 2026 Championship",
-          description: "15-day tournament - fastest time wins!",
-          mazeSeed: "labyrinth-feb-2026",
-          difficulty: "Medium",
-          startTime: new Date('2026-02-01').getTime(),
-          endTime: new Date('2026-02-16').getTime(),
-          status: "Active",
-          participantCount: 0,
-          totalRuns: 0,
-          xpRewardPool: 10000,
-        });
+        // On error, stay in loading state - don't fall back to fake data
+        // The block notification system will retry automatically
       } finally {
         setLoadingTournament(false);
       }
@@ -479,9 +541,10 @@ export default function AstrayPlayPage() {
     setSubmittingToChain(true);
     try {
       console.log(`📤 Submitting run to tournament #${tournamentId}...`);
+      console.log('📝 Run data:', { tournamentId, timeMs: Math.floor(time), score, coins, deaths, completed: true });
       
       // SubmitRun is the PRIMARY operation - auto-registers player if needed
-      await lineraAdapter.mutate(
+      const result = await lineraAdapter.mutate(
         SUBMIT_RUN,
         {
           tournamentId,
@@ -493,16 +556,24 @@ export default function AstrayPlayPage() {
         }
       );
       
+      // Mutation sent successfully (fire-and-forget)
+      // Result may be empty for cross-chain messages
+      console.log('📦 Mutation sent:', result);
       const xpEstimate = calculateXpEstimate(time, deaths, true);
-      console.log('✅ Run saved on blockchain!');
+      console.log('✅ Run submitted to blockchain!');
       setLastRunXp(xpEstimate);
       toast.success(`+${xpEstimate} XP earned! 🎉`, { duration: 3000 });
+      
+      // Block notification system will auto-refetch tournament state
+      // No need for manual setTimeout - subscription handles it
     } catch (error) {
-      console.error('Failed to submit to blockchain:', error);
-      // Show estimate anyway - backend has the score
+      // Log error but don't panic - the run may still go through
+      // Cross-chain messages are async and may not return immediately
+      console.warn('⚠️ Mutation may have failed:', error);
       const xpEstimate = calculateXpEstimate(time, deaths, true);
       setLastRunXp(xpEstimate);
-      toast.success(`+${xpEstimate} XP! ⚠️ Chain sync pending`, { duration: 3000 });
+      // Show optimistic success - backend has the score as backup
+      toast.success(`+${xpEstimate} XP! (syncing...)`, { duration: 3000 });
     } finally {
       setSubmittingToChain(false);
     }
@@ -517,6 +588,12 @@ export default function AstrayPlayPage() {
 
     if (!isRegistered) {
       setShowRegistrationModal(true);
+      return;
+    }
+
+    // Check if tournament is still loading
+    if (loadingTournament) {
+      toast('Loading tournament data...', { icon: '⏳' });
       return;
     }
 

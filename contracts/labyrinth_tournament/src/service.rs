@@ -14,7 +14,6 @@ use labyrinth_tournament::{
     GameRun, LeaderboardEntry, TournamentReward, Operation, AccountOwner,
 };
 use linera_sdk::{
-    bcs,
     abi::WithServiceAbi,
     views::View,
     Service,
@@ -65,42 +64,7 @@ struct QueryRoot {
 }
 
 impl QueryRoot {
-    /// Get the default tournament with FIXED parameters.
-    /// This ensures all users see the same tournament immediately,
-    /// even before any on-chain state is created.
-    /// 
-    /// CRITICAL: All values are CONSTANTS so every chain gets the same tournament.
-    fn get_default_tournament(&self) -> Tournament {
-        use linera_sdk::linera_base_types::Timestamp;
-        
-        // FIXED CONSTANTS - same for ALL chains, ALL users
-        // Tournament #1: February 2026 Championship
-        const TOURNAMENT_ID: u64 = 1;
-        const MAZE_SEED: &str = "labyrinth-feb-2026";
-        
-        // February 1, 2026 00:00:00 UTC in microseconds
-        // 1769904000 seconds since Unix epoch = Feb 1, 2026
-        const START_TIME: u64 = 1769904000_000_000;
-        
-        // Duration: 15 days in microseconds
-        const DURATION_MICROS: u64 = 15 * 24 * 60 * 60 * 1_000_000;
-        const END_TIME: u64 = START_TIME + DURATION_MICROS;
-        
-        Tournament {
-            id: TOURNAMENT_ID,
-            title: "February 2026 Championship".to_string(),
-            description: "15-day tournament - fastest time wins!".to_string(),
-            maze_seed: MAZE_SEED.to_string(),
-            difficulty: Difficulty::Medium,
-            start_time: Timestamp::from(START_TIME),
-            end_time: Timestamp::from(END_TIME),
-            status: TournamentStatus::Active,
-            participant_count: 0,
-            total_runs: 0,
-            xp_reward_pool: 10000,
-            created_at: Timestamp::from(START_TIME),
-        }
-    }
+    // NOTE: Removed get_default_tournament() - queries must return actual on-chain state only
 }
 
 /// App stats summary
@@ -134,32 +98,29 @@ impl QueryRoot {
     // ===== Tournament Queries =====
 
     /// Get the currently active tournament.
-    /// Returns FIXED tournament data if not yet initialized.
-    /// This ensures all users see the same tournament info immediately.
+    /// Returns from RegisterView for most up-to-date state after mutations.
     async fn active_tournament(&self) -> Option<Tournament> {
-        // Try to get from state first
+        // CRITICAL: Read from RegisterView which has the latest mutated state
+        // This is the authoritative source after apply_run_on_hub mutations
+        if let Some(tournament) = self.state.active_tournament.get().clone() {
+            return Some(tournament);
+        }
+        
+        // Fallback to MapView if RegisterView is not set (shouldn't happen)
         if let Some(id) = *self.state.active_tournament_id.get() {
             if let Ok(Some(tournament)) = self.state.tournaments.get(&id).await {
                 return Some(tournament);
             }
         }
         
-        // Return FIXED tournament data (same constants as contract)
-        // This allows UI to show tournament before any mutation runs
-        // CRITICAL: All values are CONSTANTS so every chain gets the same tournament
-        Some(self.get_default_tournament())
+        // No tournament exists yet - return None
+        None
     }
 
     /// Get tournament by ID
+    /// Returns only actual on-chain state - no fallback data.
     async fn tournament(&self, id: u64) -> Option<Tournament> {
-        // If asking for tournament 1 and it doesn't exist, return default
-        if id == 1 {
-            if let Ok(Some(tournament)) = self.state.tournaments.get(&id).await {
-                return Some(tournament);
-            }
-            // Return fixed default tournament
-            return Some(self.get_default_tournament());
-        }
+        // Only return actual on-chain state
         self.state.tournaments.get(&id).await.ok().flatten()
     }
 
@@ -301,21 +262,26 @@ struct MutationRoot {
 #[Object]
 impl MutationRoot {
     /// Register a new player
+    /// Schedules the operation for execution in the next block
+    /// Returns true when operation is scheduled successfully
     async fn register_player(
         &self,
         wallet_address: Vec<u8>,
         username: String,
-    ) -> Vec<u8> {
+    ) -> bool {
         let wallet: [u8; 20] = wallet_address.try_into().unwrap_or([0u8; 20]);
         
         let operation = Operation::RegisterPlayer {
             wallet_address: wallet,
             username,
         };
-        bcs::to_bytes(&operation).unwrap()
+        self.runtime.schedule_operation(&operation);
+        true
     }
 
     /// Submit a game run to a tournament
+    /// Schedules the operation for execution in the next block
+    /// Returns true when operation is scheduled successfully
     async fn submit_run(
         &self,
         tournament_id: u64,
@@ -324,7 +290,7 @@ impl MutationRoot {
         coins: u32,
         deaths: u32,
         completed: bool,
-    ) -> Vec<u8> {
+    ) -> bool {
         let operation = Operation::SubmitRun {
             tournament_id,
             time_ms,
@@ -333,10 +299,12 @@ impl MutationRoot {
             deaths,
             completed,
         };
-        bcs::to_bytes(&operation).unwrap()
+        self.runtime.schedule_operation(&operation);
+        true
     }
 
     /// Create a new tournament (admin)
+    /// Returns true when operation is scheduled successfully
     async fn create_tournament(
         &self,
         title: String,
@@ -345,7 +313,7 @@ impl MutationRoot {
         difficulty: Difficulty,
         duration_days: u64,
         xp_reward_pool: u64,
-    ) -> Vec<u8> {
+    ) -> bool {
         let operation = Operation::CreateTournament {
             title,
             description,
@@ -354,26 +322,33 @@ impl MutationRoot {
             duration_days,
             xp_reward_pool,
         };
-        bcs::to_bytes(&operation).unwrap()
+        self.runtime.schedule_operation(&operation);
+        true
     }
 
     /// End a tournament (admin)
-    async fn end_tournament(&self, tournament_id: u64) -> Vec<u8> {
+    /// Returns true when operation is scheduled successfully
+    async fn end_tournament(&self, tournament_id: u64) -> bool {
         let operation = Operation::EndTournament { tournament_id };
-        bcs::to_bytes(&operation).unwrap()
+        self.runtime.schedule_operation(&operation);
+        true
     }
 
     /// Claim tournament reward
-    async fn claim_reward(&self, tournament_id: u64) -> Vec<u8> {
+    /// Returns true when operation is scheduled successfully
+    async fn claim_reward(&self, tournament_id: u64) -> bool {
         let operation = Operation::ClaimReward { tournament_id };
-        bcs::to_bytes(&operation).unwrap()
+        self.runtime.schedule_operation(&operation);
+        true
     }
     
     /// Bootstrap tournament #1 (creates if doesn't exist)
     /// This is idempotent - safe to call multiple times
-    async fn bootstrap_tournament(&self) -> Vec<u8> {
+    /// Returns true when operation is scheduled successfully
+    async fn bootstrap_tournament(&self) -> bool {
         let operation = Operation::BootstrapTournament;
-        bcs::to_bytes(&operation).unwrap()
+        self.runtime.schedule_operation(&operation);
+        true
     }
 }
 
